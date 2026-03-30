@@ -1,0 +1,32 @@
+name: Remote Deploy
+on:
+  push:
+    branches: [ pics ]
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Deploy to VPS
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_IP }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.PORT }}
+          script: |
+            cd /srv/pics-nms
+            
+            # 1. Sync files from GitHub
+            git fetch origin main
+            git reset --hard origin/main
+            rm -rf .next
+            npm run build
+            pm2 reload pics
+            pm2 save
