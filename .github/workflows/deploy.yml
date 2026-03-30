@@ -22,10 +22,9 @@ jobs:
           port: ${{ secrets.PORT }}
           script: |
             cd /srv/pics-nms
-            
-            # 1. Sync files from GitHub
             git fetch origin main
             git reset --hard origin/main
+            npm install
             rm -rf .next
             npm run build
             pm2 restart pics
