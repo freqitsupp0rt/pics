@@ -28,5 +28,5 @@ jobs:
             git reset --hard origin/main
             rm -rf .next
             npm run build
-            pm2 reload pics
+            pm2 restart pics
             pm2 save
