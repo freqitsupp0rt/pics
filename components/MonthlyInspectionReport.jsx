@@ -173,7 +173,7 @@ export default function MonthlyInspectionReport() {
       const { siteCode, siteName } = parseSiteInfo(siteInfo?.name);
       const pageWidth = doc.internal.pageSize.getWidth();
       const pageHeight = doc.internal.pageSize.getHeight();
-
+        
       const drawHeader = () => {
         autoTable(doc, {
           startY: 10,
@@ -211,12 +211,12 @@ export default function MonthlyInspectionReport() {
                 const centerX = cell.x + cell.width / 2;
                 const centerY = cell.y + cell.height / 2;
                 
-                doc.setFont('times', 'bold');
-                doc.setFontSize(16);
+                doc.setFont('Palatino', 'bold');// Changed font to Palatino
+                doc.setFontSize(12);
                 doc.text('MONTHLY INSPECTION REPORT', centerX, centerY - 4, { align: 'center' });
   
-                doc.setFont('times', 'normal');
-                doc.setFontSize(9);
+                doc.setFont('Palatino', 'normal');// Changed font to Palatino
+                doc.setFontSize(11);
                 const text = 'PROVISION OF INTERNET CONNECTIVITY SERVICE (PICS)\nIN PUBLIC PLACES - PHASE 2';
                 const splitText = doc.splitTextToSize(text, cell.width - 2);
                 doc.text(splitText, centerX, centerY + 2, { align: 'center' });
@@ -232,30 +232,42 @@ export default function MonthlyInspectionReport() {
         });
       };
 
-      const drawFooter = () => {
-        const footerY = pageHeight - 55;
-        doc.setFontSize(10);
-        doc.setFont('times', 'italic');
-        doc.text("Notes: Photos should have Geotagging (coordinates, date and time stamp)", 15, footerY);
-        
-        doc.setFont('times', 'bold');
-        doc.text("Prepared by: Engr. Jason Ilde Y. Aguihon", 15, footerY + 10);
-        doc.setFont('times', 'normal');
-        doc.text("Project Engineer", 15, footerY + 15);
+      const drawFooter = () => {// adjusted footer
+  const footerY = pageHeight - 60;
 
-        const rightColX = pageWidth / 2 + 10;
-        doc.setFont('times', 'bold');
-        doc.text("Checked by: Engr. Cindy D. Camarines", rightColX, footerY + 10);
-        doc.setFont('times', 'normal');
-        doc.text("Engineer II, FPIAP", rightColX, footerY + 15);
-        doc.text("DICT Regional Office VIII", rightColX, footerY + 20);
+  // Notes
+  doc.setFontSize(10);
+  doc.setFont('Palatino', 'italic');
+  doc.text("Notes: Photos should have Geotagging (coordinates, date and time stamp)", 15, footerY);
 
-        doc.setFont('times', 'bold');
-        doc.text("Noted by: Ms. CLAIRE P. FERNANDEZ", rightColX, footerY + 30);
-        doc.setFont('times', 'normal');
-        doc.text("Provincial Officer", rightColX, footerY + 35);
-        doc.text("DICT Leyte", rightColX, footerY + 40);
-      };
+  const drawSignatory = (label, name, roles, x, y) => {
+    doc.setFont('Palatino', 'normal');
+    doc.text(label, x, y);
+    const labelWidth = doc.getTextWidth(label);
+    doc.setFont('Palatino', 'bold');
+    doc.text(name, x + labelWidth, y);
+    // Underline
+    const nameWidth = doc.getTextWidth(name);
+    doc.setLineWidth(0.3);
+    doc.line(x + labelWidth, y + 1, x + labelWidth + nameWidth, y + 1);
+    // Roles centered under name
+    const nameCenterX = x + labelWidth + nameWidth / 2;
+    doc.setFont('Palatino', 'normal');
+    roles.forEach((role, i) => {
+      const roleWidth = doc.getTextWidth(role);
+      doc.text(role, nameCenterX - roleWidth / 2, y + 5.2 + (i * 5.2));
+    });
+  };
+
+  const leftX = 15;
+  const rightX = pageWidth / 2 + 10;
+
+  drawSignatory("Prepared by: ", "Engr. Jason Ilde Y. Aguihon", ["Project Engineer"], leftX, footerY + 12);
+  drawSignatory("Checked by: ", "Engr. Cindy D. Camarines", ["Engineer II, FPIAP", "DICT Regional Office VIII"], rightX, footerY + 12);
+  drawSignatory("Noted by: ", "Ms. Claire P. Fernandez", ["Provincial Officer DICT Leyte"], rightX, footerY + 30);
+};
+
+      
 
       const addImageToPage = (imgData, x, y, maxWidth, maxHeight) => {
         if (imgData) {
@@ -322,14 +334,28 @@ export default function MonthlyInspectionReport() {
 
       // 1. TOP HEADER & PAGE 1 INFO
       drawHeader();
-      doc.setFontSize(12);
-      doc.setFont('times', 'bold');
-      doc.text(`Provider Name: FREQ IT SOLUTIONS`, 15, doc.lastAutoTable.finalY + 10);
-      doc.text(`Date Prepared: ${dayjs(reportDate).format('MMMM D, YYYY')}`, pageWidth - 15, doc.lastAutoTable.finalY + 10, { align: 'right' });
+       doc.setFontSize(12);
+      // Provider Name line //Sets the Provider name and specific date to BOLD
+      doc.setFont('Palatino', 'normal'); //changed font to Palatino
+      doc.text(`Provider Name: `, 15, doc.lastAutoTable.finalY + 10);
+      const providerLabelWidth = doc.getTextWidth('Provider Name: ');
+      doc.setFont('Palatino', 'bold'); // changed font to Palatino
+      doc.text(`FREQ IT SOLUTIONS`, 15 + providerLabelWidth, doc.lastAutoTable.finalY + 10);
+
+      // Date Prepared line
+      doc.setFont('Palatino', 'normal'); //changed font to Palatino
+      const dateLabel = `Date Prepared: `;
+      const dateValue = dayjs(reportDate).format('MMMM D, YYYY');
+      const dateLabelWidth = doc.getTextWidth(dateLabel);
+      const dateValueWidth = doc.getTextWidth(dateValue);
+      const totalWidth = dateLabelWidth + dateValueWidth;
+      doc.text(dateLabel, pageWidth - 15 - totalWidth, doc.lastAutoTable.finalY + 10);
+      doc.setFont('Palatino', 'bold'); // changed font to Palatino
+      doc.text(dateValue, pageWidth - 15 - dateValueWidth, doc.lastAutoTable.finalY + 10);
 
       // 2. MAIN DATA TABLE (Replicating your .docx table structure) 
       autoTable(doc, {
-        startY: doc.lastAutoTable.finalY + 20,
+        startY: doc.lastAutoTable.finalY + 15,
         head: [[
           'Item\nNo.', 
           'Location Code', 
@@ -339,11 +365,11 @@ export default function MonthlyInspectionReport() {
           'Contracted\nBandwidth\n(Mbps)', 
           'Remarks'
         ]],
-        body: [
+        body: [//Made the Location name to Capital Letters
           [
             { content: '1', rowSpan: 5, styles: { valign: 'middle', halign: 'center', textColor: [0, 0, 0] } },
             { content: siteCode || 'N/A', rowSpan: 5, styles: { valign: 'middle', halign: 'center', textColor: [0, 0, 0]} },
-            { content: siteName || 'N/A', rowSpan: 5, styles: { valign: 'middle', halign: 'left' } },
+            { content: siteName?.toUpperCase() || 'N/A', rowSpan: 5, styles: { valign: 'middle', halign: 'center' } },
             speedTests[0].down,
             speedTests[0].up,
             { content: `${contractedBandwidth} Mbps`, rowSpan: 5, styles: { valign: 'middle', halign: 'center', textColor: [0, 0, 0] } },
@@ -354,46 +380,51 @@ export default function MonthlyInspectionReport() {
           [speedTests[3].down, speedTests[3].up],
           [speedTests[4].down, speedTests[4].up],
         ],
+        //Changed fontstyle, size and header color
         theme: 'grid',
         headStyles: { 
-          fillColor: [135, 206, 235], 
-          textColor: [0, 0, 0], 
-          fontStyle: 'bold', 
-          halign: 'center',
-          valign: 'middle',
-          lineWidth: 0.1,
-          lineColor: [0, 0, 0]
+        fillColor: [204, 226, 234],
+        textColor: [0, 0, 0], 
+        fontStyle: 'bold', 
+        font: 'Palatino', // ✅
+        halign: 'center',
+        valign: 'middle',
+        minCellHeight: 21,
+        lineWidth: 0.1,
+        lineColor: [0, 0, 0]
         },
         bodyStyles: { 
-          textColor: [0, 0, 0], 
-          halign: 'center',
-          valign: 'middle',
-          lineWidth: 0.1,
-          lineColor: [0, 0, 0]
-        },
+        textColor: [0, 0, 0], 
+        halign: 'center',
+        valign: 'middle',
+        font: 'Palatino',
+        fontStyle: 'bold', // ✅
+        fontSize: 12,      // ✅
+        lineWidth: 0.1,
+        lineColor: [0, 0, 0]
+},
         styles: { 
-          fontSize: 8, 
-          halign: 'center',
-          lineWidth: 0.1,
-          lineColor: [0, 0, 0]
+        fontSize: 10, 
+        halign: 'center',
+        font: 'Palatino', // ✅
+        lineWidth: 0.1,
+        lineColor: [0, 0, 0]
         },
-        columnStyles: {
-          2: { halign: 'left', cellWidth: 40 },
-          6: { cellWidth: 25 }
-        }
       });
 
       // Footer
       drawFooter();
 
-      // 3. ATTACHMENT 1: EQUIPMENT PHOTOS (Combox)
+      // 3. ATTACHMENT 1: EQUIPMENT PHOTOS (Combox) // Changed font to Palatino
       doc.addPage();
       drawHeader();
       drawFooter();
       let currentY = 50;
       doc.setFontSize(11);
-      doc.setFont('times', 'bold');
-      doc.text("ATTACHMENT 1: EQUIPMENT PHOTOS", pageWidth / 2, currentY, { align: 'center' });
+      doc.setFont('Palatino', 'bold');
+      doc.text("ATTACHMENT 1", pageWidth / 2, currentY, { align: 'center' });
+      doc.setFont('Palatino', 'normal');
+      doc.text("EQUIPMENT PHOTOS", pageWidth / 2, currentY + 6, { align: 'center' });
       currentY += 5;
       
       // Section Border
@@ -416,7 +447,7 @@ export default function MonthlyInspectionReport() {
         drawHeader();
         drawFooter();
         doc.setFontSize(11);
-        doc.setFont('times', 'bold');
+        doc.setFont('Palatino', 'bold');// Changed font to Palatino
         const titleY = 50;
         doc.text("ATTACHMENT 1: EQUIPMENT PHOTOS (Access Points)", pageWidth / 2, titleY, { align: 'center' });
         
@@ -431,9 +462,11 @@ export default function MonthlyInspectionReport() {
       drawHeader();
       drawFooter();
       doc.setFontSize(11);
-      doc.setFont('times', 'bold');
+      doc.setFont('Palatino', 'bold');// Changed font to Palatino
       const bwTitleY = 50;
-      doc.text("ATTACHMENT 2: BANDWIDTH TEST RESULTS", pageWidth / 2, bwTitleY, { align: 'center' });
+     doc.text("ATTACHMENT 2", pageWidth / 2, currentY, { align: 'center' });
+     doc.setFont('Palatino', 'normal');
+      doc.text("DOWNLINK AND UPLINK TEST RESULTS", pageWidth / 2, currentY + 6, { align: 'center' });
       
       const bwGridStartY = bwTitleY + 5;
       const bwGridHeight = pageHeight - bwGridStartY - 60;
@@ -452,9 +485,11 @@ export default function MonthlyInspectionReport() {
       drawHeader();
       drawFooter();
       doc.setFontSize(11);
-      doc.setFont('times', 'bold');
+      doc.setFont('Palatino', 'bold');// Changed font to Palatino
       const siteTitleY = 50;
-      doc.text("ATTACHMENT 3: SITE PICTURES", pageWidth / 2, siteTitleY, { align: 'center' });
+      doc.text("ATTACHMENT 3", pageWidth / 2, currentY, { align: 'center' });
+      doc.setFont('Palatino', 'normal');
+      doc.text("SITE INSPECTION PICTURES", pageWidth / 2, currentY + 6, { align: 'center' });
       
       const siteSectionY = siteTitleY + 5;
       doc.rect(15, siteSectionY, pageWidth - 30, sectionHeight);
