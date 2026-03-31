@@ -84,7 +84,10 @@ export default function MonthlyInspectionReport() {
       const reader = new FileReader();
       reader.onload = (event) => {
         if (isMultiple) {
-          setter(prev => [...prev, event.target.result]);
+          setter(prev => {
+            if (prev.length >= 4) return prev;
+            return [...prev, event.target.result];
+          });
         } else {
           setter(event.target.result);
         }
@@ -97,6 +100,42 @@ export default function MonthlyInspectionReport() {
   const removeImage = (index, setter) => {
     setter(prev => prev.filter((_, i) => i !== index));
   };
+
+  const [draggingOver, setDraggingOver] = useState(null);
+
+  const readFileAsDataURL = (file) =>
+    new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (e) => resolve(e.target.result);
+      reader.readAsDataURL(file);
+    });
+
+  const handleDrop = async (e, zone, setter, isMultiple = false) => {
+    e.preventDefault();
+    setDraggingOver(null);
+    const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+    if (files.length === 0) return;
+
+    if (!isMultiple) {
+      const dataUrl = await readFileAsDataURL(files[0]);
+      setter(dataUrl);
+    } else {
+      for (const file of files) {
+        const dataUrl = await readFileAsDataURL(file);
+        setter(prev => {
+          if (prev.length >= 4) return prev;
+          return [...prev, dataUrl];
+        });
+      }
+    }
+  };
+
+  const handleDragOver = (e, zone) => {
+    e.preventDefault();
+    setDraggingOver(zone);
+  };
+
+  const handleDragLeave = () => setDraggingOver(null);
 
   const [pdfUrl, setPdfUrl] = useState(null);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -511,31 +550,60 @@ export default function MonthlyInspectionReport() {
     }
   };
 
-  // ── Validate speed tests before proceeding to next step ──
+  // ── Navigate AP tabs with validation; go to Attachments after last AP ──
   const handleNextClick = () => {
-    const missing = speedTests
-      .map((test, i) => {
-        if (!test.down && !test.up) return `AP ${i + 1} (Download & Upload)`;
-        if (!test.down) return `AP ${i + 1} (Download)`;
-        if (!test.up) return `AP ${i + 1} (Upload)`;
-        return null;
-      })
-      .filter(Boolean);
+    const currentTest = speedTests[activeSpeedTestTab];
+    const missingDown = !currentTest.down;
+    const missingUp = !currentTest.up;
 
-    if (missing.length > 0) {
+    if (missingDown || missingUp) {
+      const missing = [];
+      if (missingDown) missing.push('Download');
+      if (missingUp) missing.push('Upload');
+
       Swal.fire({
         icon: 'warning',
-        title: 'Missing Speed Test Data',
-        html: `Please fill in the following:<br/><br/><ul style="text-align:center">${missing.map(m => `<li>${m}</li>`).join('')}</ul>`,
+        title: `Missing AP ${activeSpeedTestTab + 1} Data`,
+        html: `
+          Please fill in the following:
+          <ul style="text-align: center; margin-top: 8px;">
+            ${missing.map(m => `<li>${m}</li>`).join('')}
+          </ul>
+        `,
         confirmButtonText: 'Go Back',
-        background: '#1d2836',
+        background: '#1f2b3a',
         color: '#e2e1e1',
         confirmButtonColor: '#3b82f6',
       });
       return;
     }
 
+    // If more APs remain, advance to the next one
+    if (activeSpeedTestTab < speedTests.length - 1) {
+      setActiveSpeedTestTab(activeSpeedTestTab + 1);
+      return;
+    }
+
+    // Last AP done — proceed to Attachments
     setActiveSectionTab(1);
+  };
+
+  // ── Reset all form fields when a new site is selected ──
+  const handleSiteSelect = (id) => {
+    setSelectedSite(id);
+    setPdfUrl(null);
+    setPdfBlob(null);
+
+    // Reset speed tests
+    setSpeedTests(Array(4).fill(null).map(() => ({ down: '', up: '' })));
+    setActiveSpeedTestTab(0);
+    setActiveSectionTab(0);
+
+    // Reset attachments
+    setComboxImage(null);
+    setAdditionalImages([]);
+    setSpeedtestImages([]);
+    setSiteInspectionImage(null);
   };
 
   return (
@@ -549,7 +617,7 @@ export default function MonthlyInspectionReport() {
               loading={loadingSites}
               selectedSite={selectedSite}
               searchTerm={siteSearchTerm}
-              onSiteSelect={(id) => { setSelectedSite(id); setPdfUrl(null); }}
+              onSiteSelect={handleSiteSelect}
               onSearchChange={setSiteSearchTerm}
             />
           </div>
@@ -749,14 +817,7 @@ export default function MonthlyInspectionReport() {
                                 <p className="text-center text-xs text-purple-400/50 mt-1">Mbps</p>
                               </div>
                             </div>
-                            {/* Summary */}
-                            <div className="mt-4 flex items-center justify-between px-1">
-                              <span className="text-xs text-gray-600 font-medium">Test {index + 1} of {speedTests.length}</span>
-                              <div className="flex gap-4">
-                                {test.down ? <span className="text-xs font-semibold text-green-400">↓ {test.down} Mbps</span> : <span className="text-xs text-gray-700">↓ —</span>}
-                                {test.up ? <span className="text-xs font-semibold text-blue-400">↑ {test.up} Mbps</span> : <span className="text-xs text-gray-700">↑ —</span>}
-                              </div>
-                            </div>
+
                           </div>
                         ))}
                       </div>
@@ -768,7 +829,7 @@ export default function MonthlyInspectionReport() {
                           onClick={handleNextClick}
                           className="w-full bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 py-3.5 rounded-xl font-bold transition-all shadow-lg shadow-blue-900/20 flex items-center justify-center gap-2 text-sm"
                         >
-                          <span>Next</span>
+                          <span>{activeSpeedTestTab < speedTests.length - 1 ? `Next — AP ${activeSpeedTestTab + 2}` : 'Next — Attachments'}</span>
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                           </svg>
@@ -780,122 +841,157 @@ export default function MonthlyInspectionReport() {
                     <div className={activeSectionTab === 1 ? 'block' : 'hidden'}>
                       <div className="bg-black/10 p-5 space-y-5">
 
-                    {/* Single-image row: Combox + Site Inspection */}
-                    <div className="grid grid-cols-2 gap-4">
-                      {/* Communication Box */}
-                      <div className="rounded-xl border border-white/10 bg-white/5 overflow-hidden">
-                        <div className="px-3 py-2 border-b border-white/10 flex items-center justify-between">
-                          <span className="text-xs font-semibold text-gray-300 uppercase tracking-wider">Comm. Box</span>
-                          <span className="text-[10px] text-gray-600 bg-white/5 px-2 py-0.5 rounded-full">1 image</span>
-                        </div>
-                        <div className="p-3">
-                          {comboxImage ? (
-                            <div className="relative group rounded-lg overflow-hidden aspect-square bg-black/20">
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img src={comboxImage} alt="Combox" className="w-full h-full object-cover" />
-                              <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                                <button type="button" onClick={() => setLightboxImage(comboxImage)} className="w-8 h-8 bg-white/20 hover:bg-white/40 rounded-full flex items-center justify-center transition-colors">
-                                  <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
-                                </button>
-                                <button type="button" onClick={() => setComboxImage(null)} className="w-8 h-8 bg-red-500/80 hover:bg-red-500 rounded-full flex items-center justify-center transition-colors">
-                                  <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                                </button>
-                              </div>
+                        {/* Single-image row: Combox + Site Inspection */}
+                        <div className="grid grid-cols-2 gap-4">
+                          {/* Communication Box */}
+                          <div className="rounded-xl border border-white/10 bg-white/5 overflow-hidden">
+                            <div className="px-3 py-2 border-b border-white/10 flex items-center justify-between">
+                              <span className="text-xs font-semibold text-gray-300 uppercase tracking-wider">Comm. Box</span>
+                              <span className="text-[10px] text-gray-600 bg-white/5 px-2 py-0.5 rounded-full">1 image</span>
                             </div>
-                          ) : (
-                            <label className="cursor-pointer flex flex-col items-center justify-center aspect-square rounded-lg border-2 border-dashed border-white/10 hover:border-purple-500/40 hover:bg-purple-500/5 transition-all group">
-                              <svg className="w-6 h-6 text-gray-600 group-hover:text-purple-400 transition-colors mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                              </svg>
-                              <span className="text-[10px] text-gray-600 group-hover:text-purple-400 transition-colors">Upload</span>
-                              <input type="file" accept="image/*" className="hidden" onChange={(e) => handleImageUpload(e, setComboxImage)} />
-                            </label>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Site Inspection */}
-                      <div className="rounded-xl border border-white/10 bg-white/5 overflow-hidden">
-                        <div className="px-3 py-2 border-b border-white/10 flex items-center justify-between">
-                          <span className="text-xs font-semibold text-gray-300 uppercase tracking-wider">Site Inspection</span>
-                          <span className="text-[10px] text-gray-600 bg-white/5 px-2 py-0.5 rounded-full">1 image</span>
-                        </div>
-                        <div className="p-3">
-                          {siteInspectionImage ? (
-                            <div className="relative group rounded-lg overflow-hidden aspect-square bg-black/20">
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img src={siteInspectionImage} alt="Site" className="w-full h-full object-cover" />
-                              <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                                <button type="button" onClick={() => setLightboxImage(siteInspectionImage)} className="w-8 h-8 bg-white/20 hover:bg-white/40 rounded-full flex items-center justify-center transition-colors">
-                                  <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
-                                </button>
-                                <button type="button" onClick={() => setSiteInspectionImage(null)} className="w-8 h-8 bg-red-500/80 hover:bg-red-500 rounded-full flex items-center justify-center transition-colors">
-                                  <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                                </button>
-                              </div>
-                            </div>
-                          ) : (
-                            <label className="cursor-pointer flex flex-col items-center justify-center aspect-square rounded-lg border-2 border-dashed border-white/10 hover:border-purple-500/40 hover:bg-purple-500/5 transition-all group">
-                              <svg className="w-6 h-6 text-gray-600 group-hover:text-purple-400 transition-colors mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                              </svg>
-                              <span className="text-[10px] text-gray-600 group-hover:text-purple-400 transition-colors">Upload</span>
-                              <input type="file" accept="image/*" className="hidden" onChange={(e) => handleImageUpload(e, setSiteInspectionImage)} />
-                            </label>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                      {/* Multi-image rows */}
-                      {[
-                        { label: 'Equipment Photos', sublabel: 'Access points, cables, hardware', images: additionalImages, setter: setAdditionalImages, onAdd: (e) => handleImageUpload(e, setAdditionalImages, true) },
-                        { label: 'Speedtest Results', sublabel: 'Bandwidth test screenshots', images: speedtestImages, setter: setSpeedtestImages, onAdd: (e) => handleImageUpload(e, setSpeedtestImages, true) },
-                      ].map(({ label, sublabel, images, setter, onAdd }) => (
-                        <div key={label} className="rounded-xl border border-white/10 bg-white/5 overflow-hidden">
-                          <div className="px-4 py-2.5 border-b border-white/10 flex items-center justify-between">
-                            <div>
-                              <span className="text-xs font-semibold text-gray-300 uppercase tracking-wider">{label}</span>
-                              <p className="text-[10px] text-gray-600 mt-0.5">{sublabel}</p>
-                            </div>
-                            <span className="text-[10px] text-gray-500 bg-white/5 px-2 py-0.5 rounded-full">
-                              {images.length} {images.length === 1 ? 'image' : 'images'}
-                            </span>
-                          </div>
-                          <div className="p-4">
-                            <div className="grid grid-cols-4 gap-3">
-                              {images.map((img, idx) => (
-                                <div key={idx} className="relative group aspect-square rounded-xl overflow-hidden bg-black/20 border border-white/10 hover:border-white/20 transition-all shadow-md">
+                            <div className="p-3">
+                              {comboxImage ? (
+                                <div className="relative group rounded-lg overflow-hidden aspect-square bg-black/20">
                                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                                  <img src={img} alt={`${label} ${idx}`} className="w-full h-full object-cover" />
-                                  <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                                  <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                                    <button type="button" onClick={() => setLightboxImage(img)} className="w-8 h-8 bg-white/20 hover:bg-white/40 backdrop-blur-sm rounded-full flex items-center justify-center transition-all hover:scale-110">
-                                      <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                  <img src={comboxImage} alt="Combox" className="w-full h-full object-cover" />
+                                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                                    <button type="button" onClick={() => setLightboxImage(comboxImage)} className="w-8 h-8 bg-white/20 hover:bg-white/40 rounded-full flex items-center justify-center transition-colors">
+                                      <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
                                     </button>
-                                    <button type="button" onClick={() => removeImage(idx, setter)} className="w-8 h-8 bg-red-500/80 hover:bg-red-500 backdrop-blur-sm rounded-full flex items-center justify-center transition-all hover:scale-110">
-                                      <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                    <button type="button" onClick={() => setComboxImage(null)} className="w-8 h-8 bg-red-500/80 hover:bg-red-500 rounded-full flex items-center justify-center transition-colors">
+                                      <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                                     </button>
-                                  </div>
-                                  <div className="absolute bottom-1.5 right-1.5 bg-black/50 backdrop-blur-sm text-[9px] text-white/60 px-1.5 py-0.5 rounded-md font-medium">
-                                    {idx + 1}
                                   </div>
                                 </div>
-                              ))}
-                              {/* Add button */}
-                              <label className="cursor-pointer aspect-square rounded-xl border-2 border-dashed border-white/10 hover:border-purple-500/40 hover:bg-purple-500/5 flex flex-col items-center justify-center transition-all group shadow-md">
-                                <div className="w-8 h-8 rounded-full bg-white/5 group-hover:bg-purple-500/20 flex items-center justify-center transition-all mb-1">
-                                  <svg className="w-4 h-4 text-gray-600 group-hover:text-purple-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                              ) : (
+                                <label
+                                  className={`cursor-pointer flex flex-col items-center justify-center aspect-square rounded-lg border-2 border-dashed transition-all group
+                                    ${draggingOver === 'combox'
+                                      ? 'border-purple-400 bg-purple-500/15 scale-[1.02]'
+                                      : 'border-white/10 hover:border-purple-500/40 hover:bg-purple-500/5'}`}
+                                  onDragOver={(e) => handleDragOver(e, 'combox')}
+                                  onDragLeave={handleDragLeave}
+                                  onDrop={(e) => handleDrop(e, 'combox', setComboxImage, false)}
+                                >
+                                  <svg className={`w-6 h-6 mb-1 transition-colors ${draggingOver === 'combox' ? 'text-purple-400' : 'text-gray-600 group-hover:text-purple-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                                   </svg>
+                                  <span className={`text-[10px] transition-colors ${draggingOver === 'combox' ? 'text-purple-400' : 'text-gray-600 group-hover:text-purple-400'}`}>
+                                    {draggingOver === 'combox' ? 'Drop here' : 'Upload or drag'}
+                                  </span>
+                                  <input type="file" accept="image/*" className="hidden" onChange={(e) => handleImageUpload(e, setComboxImage)} />
+                                </label>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Site Inspection */}
+                          <div className="rounded-xl border border-white/10 bg-white/5 overflow-hidden">
+                            <div className="px-3 py-2 border-b border-white/10 flex items-center justify-between">
+                              <span className="text-xs font-semibold text-gray-300 uppercase tracking-wider">Site Inspection</span>
+                              <span className="text-[10px] text-gray-600 bg-white/5 px-2 py-0.5 rounded-full">1 image</span>
+                            </div>
+                            <div className="p-3">
+                              {siteInspectionImage ? (
+                                <div className="relative group rounded-lg overflow-hidden aspect-square bg-black/20">
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                  <img src={siteInspectionImage} alt="Site" className="w-full h-full object-cover" />
+                                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                                    <button type="button" onClick={() => setLightboxImage(siteInspectionImage)} className="w-8 h-8 bg-white/20 hover:bg-white/40 rounded-full flex items-center justify-center transition-colors">
+                                      <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                    </button>
+                                    <button type="button" onClick={() => setSiteInspectionImage(null)} className="w-8 h-8 bg-red-500/80 hover:bg-red-500 rounded-full flex items-center justify-center transition-colors">
+                                      <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                    </button>
+                                  </div>
                                 </div>
-                                <span className="text-[10px] text-gray-600 group-hover:text-purple-400 transition-colors font-medium">Add</span>
-                                <input type="file" accept="image/*" multiple className="hidden" onChange={onAdd} />
-                              </label>
+                              ) : (
+                                <label
+                                  className={`cursor-pointer flex flex-col items-center justify-center aspect-square rounded-lg border-2 border-dashed transition-all group
+                                    ${draggingOver === 'site'
+                                      ? 'border-purple-400 bg-purple-500/15 scale-[1.02]'
+                                      : 'border-white/10 hover:border-purple-500/40 hover:bg-purple-500/5'}`}
+                                  onDragOver={(e) => handleDragOver(e, 'site')}
+                                  onDragLeave={handleDragLeave}
+                                  onDrop={(e) => handleDrop(e, 'site', setSiteInspectionImage, false)}
+                                >
+                                  <svg className={`w-6 h-6 mb-1 transition-colors ${draggingOver === 'site' ? 'text-purple-400' : 'text-gray-600 group-hover:text-purple-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                  </svg>
+                                  <span className={`text-[10px] transition-colors ${draggingOver === 'site' ? 'text-purple-400' : 'text-gray-600 group-hover:text-purple-400'}`}>
+                                    {draggingOver === 'site' ? 'Drop here' : 'Upload or drag'}
+                                  </span>
+                                  <input type="file" accept="image/*" className="hidden" onChange={(e) => handleImageUpload(e, setSiteInspectionImage)} />
+                                </label>
+                              )}
                             </div>
                           </div>
                         </div>
-                      ))}
+
+                        {/* Multi-image rows */}
+                        {[
+                          { label: 'Equipment Photos', sublabel: 'Access points, cables, hardware', zone: 'equipment', images: additionalImages, setter: setAdditionalImages, onAdd: (e) => handleImageUpload(e, setAdditionalImages, true) },
+                          { label: 'Speedtest Results', sublabel: 'Bandwidth test screenshots', zone: 'speedtest', images: speedtestImages, setter: setSpeedtestImages, onAdd: (e) => handleImageUpload(e, setSpeedtestImages, true) },
+                        ].map(({ label, sublabel, zone, images, setter, onAdd }) => (
+                          <div key={label} className="rounded-xl border border-white/10 bg-white/5 overflow-hidden">
+                            <div className="px-4 py-2.5 border-b border-white/10 flex items-center justify-between">
+                              <div>
+                                <span className="text-xs font-semibold text-gray-300 uppercase tracking-wider">{label}</span>
+                                <p className="text-[10px] text-gray-600 mt-0.5">{sublabel}</p>
+                              </div>
+                              <span className="text-[10px] text-gray-500 bg-white/5 px-2 py-0.5 rounded-full">
+                                {images.length} / 4
+                              </span>
+                            </div>
+                            <div
+                              className={`p-4 transition-colors duration-150 ${draggingOver === zone ? 'bg-purple-500/10' : ''}`}
+                              onDragOver={(e) => images.length < 4 ? handleDragOver(e, zone) : e.preventDefault()}
+                              onDragLeave={handleDragLeave}
+                              onDrop={(e) => handleDrop(e, zone, setter, true)}
+                            >
+                              <div className="grid grid-cols-4 gap-3">
+                                {images.map((img, idx) => (
+                                  <div key={idx} className="relative group aspect-square rounded-xl overflow-hidden bg-black/20 border border-white/10 hover:border-white/20 transition-all shadow-md">
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                    <img src={img} alt={`${label} ${idx}`} className="w-full h-full object-cover" />
+                                    <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                                    <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                                      <button type="button" onClick={() => setLightboxImage(img)} className="w-8 h-8 bg-white/20 hover:bg-white/40 backdrop-blur-sm rounded-full flex items-center justify-center transition-all hover:scale-110">
+                                        <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                      </button>
+                                      <button type="button" onClick={() => removeImage(idx, setter)} className="w-8 h-8 bg-red-500/80 hover:bg-red-500 backdrop-blur-sm rounded-full flex items-center justify-center transition-all hover:scale-110">
+                                        <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                      </button>
+                                    </div>
+                                    <div className="absolute bottom-1.5 right-1.5 bg-black/50 backdrop-blur-sm text-[9px] text-white/60 px-1.5 py-0.5 rounded-md font-medium">
+                                      {idx + 1}
+                                    </div>
+                                  </div>
+                                ))}
+                                {/* Add button — hidden once 4 images are uploaded */}
+                                {images.length < 4 && (
+                                  <label
+                                    className={`cursor-pointer aspect-square rounded-xl border-2 border-dashed flex flex-col items-center justify-center transition-all group shadow-md
+                                      ${draggingOver === zone
+                                        ? 'border-purple-400 bg-purple-500/20 scale-[1.03]'
+                                        : 'border-white/10 hover:border-purple-500/40 hover:bg-purple-500/5'}`}
+                                  >
+                                    <div className={`w-8 h-8 rounded-full flex items-center justify-center transition-all mb-1
+                                      ${draggingOver === zone ? 'bg-purple-500/30' : 'bg-white/5 group-hover:bg-purple-500/20'}`}>
+                                      <svg className={`w-4 h-4 transition-colors ${draggingOver === zone ? 'text-purple-300' : 'text-gray-600 group-hover:text-purple-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                                      </svg>
+                                    </div>
+                                    <span className={`text-[10px] transition-colors font-medium ${draggingOver === zone ? 'text-purple-300' : 'text-gray-600 group-hover:text-purple-400'}`}>
+                                      {draggingOver === zone ? 'Drop here' : 'Add'}
+                                    </span>
+                                    <input type="file" accept="image/*" multiple className="hidden" onChange={onAdd} />
+                                  </label>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
                       </div>
                       {/* Generate button */}
                       <div className="pt-2">
