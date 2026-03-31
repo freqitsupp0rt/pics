@@ -50,6 +50,22 @@ const parseSiteInfo = (fullSiteName) => {
   return { siteCode: '', siteName: trimmedName };
 };
 
+// ── Signatory options  ──
+const PREPARED_BY_OPTIONS = [
+  { name: 'Engr. Jason Ilde Y. Aguihon', lines: ['Project Engineer'] },
+  { name: 'Engr. Eduardo Dela Cruz', lines: ['Project Engineer'] },
+];
+
+const CHECKED_BY_OPTIONS = [
+  { name: 'Engr. Cindy D. Camarines', lines: ['Engineer II, FPIAP', 'DICT Regional Office VIII'] },
+  { name: 'Engr. Gualberto R. Gualberto Jr.', lines: ['DICT Provincial Officer', '3rd, 4th, & 5th District'] },
+];
+
+const NOTED_BY_OPTIONS = [
+  { name: 'Ms. CLAIRE P. FERNANDEZ', lines: ['Provincial Officer', 'DICT Leyte'] },
+  { name: 'Engr. Edberto C. Versoza', lines: ['Provincial Officer', 'DICT Northern Samar'] },
+];
+
 export default function MonthlyInspectionReport() {
   const [sites, setSites] = useState([]);
   const [selectedSite, setSelectedSite] = useState(null);
@@ -66,6 +82,11 @@ export default function MonthlyInspectionReport() {
   const [activeSpeedTestTab, setActiveSpeedTestTab] = useState(0);
   const [activeSectionTab, setActiveSectionTab] = useState(0);
 
+  // ── Signatory state ──
+  const [preparedBy, setPreparedBy] = useState(PREPARED_BY_OPTIONS[0]);
+  const [checkedBy, setCheckedBy] = useState(CHECKED_BY_OPTIONS[0]);
+  const [notedBy, setNotedBy] = useState(NOTED_BY_OPTIONS[0]);
+
   const handleSpeedTestChange = (index, type, value) => {
     const newSpeedTests = speedTests.map((test, i) => i === index ? { ...test, [type]: value } : test);
     setSpeedTests(newSpeedTests);
@@ -75,7 +96,6 @@ export default function MonthlyInspectionReport() {
   const [additionalImages, setAdditionalImages] = useState([]);
   const [speedtestImages, setSpeedtestImages] = useState([]);
   const [siteInspectionImage, setSiteInspectionImage] = useState(null);
-  const [lightboxImage, setLightboxImage] = useState(null);
 
   const handleImageUpload = (e, setter, isMultiple = false) => {
     const files = Array.from(e.target.files);
@@ -102,10 +122,47 @@ export default function MonthlyInspectionReport() {
     setter(prev => prev.filter((_, i) => i !== index));
   };
 
+  const [draggingOver, setDraggingOver] = useState(null);
+
+  const readFileAsDataURL = (file) =>
+    new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (e) => resolve(e.target.result);
+      reader.readAsDataURL(file);
+    });
+
+  const handleDrop = async (e, zone, setter, isMultiple = false) => {
+    e.preventDefault();
+    setDraggingOver(null);
+    const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+    if (files.length === 0) return;
+
+    if (!isMultiple) {
+      const dataUrl = await readFileAsDataURL(files[0]);
+      setter(dataUrl);
+    } else {
+      for (const file of files) {
+        const dataUrl = await readFileAsDataURL(file);
+        setter(prev => {
+          if (prev.length >= 4) return prev;
+          return [...prev, dataUrl];
+        });
+      }
+    }
+  };
+
+  const handleDragOver = (e, zone) => {
+    e.preventDefault();
+    setDraggingOver(zone);
+  };
+
+  const handleDragLeave = () => setDraggingOver(null);
+
   const [pdfUrl, setPdfUrl] = useState(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [pdfBlob, setPdfBlob] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [lightboxImage, setLightboxImage] = useState(null);
 
   const [logoDataUrl, setLogoDataUrl] = useState(null);
   const [logoDataUrl2, setLogoDataUrl2] = useState(null);
@@ -176,7 +233,7 @@ export default function MonthlyInspectionReport() {
       const { siteCode, siteName } = parseSiteInfo(siteInfo?.name);
       const pageWidth = doc.internal.pageSize.getWidth();
       const pageHeight = doc.internal.pageSize.getHeight();
-        
+
       const drawHeader = () => {
         autoTable(doc, {
           startY: 10,
@@ -207,14 +264,14 @@ export default function MonthlyInspectionReport() {
                 const cell = data.cell;
                 const centerX = cell.x + cell.width / 2;
                 const centerY = cell.y + cell.height / 2;
-                doc.setTextColor(0, 0, 0);
-                doc.setFont('Palatino', 'bold');// Changed font to Palatino
-                doc.setFontSize(12);
+
+                doc.setFont('times', 'bold');
+                doc.setFontSize(16);
                 doc.text('MONTHLY INSPECTION REPORT', centerX, centerY - 4, { align: 'center' });
-                doc.setTextColor(0, 0, 0);
-                doc.setFont('Palatino', 'normal');// Changed font to Palatino
-                doc.setFontSize(11);
-                const text = 'Provision Of Internet Connectivity Service (PICS)\n In Public Places - Phase 2';
+
+                doc.setFont('times', 'normal');
+                doc.setFontSize(9);
+                const text = 'PROVISION OF INTERNET CONNECTIVITY SERVICE (PICS)\nIN PUBLIC PLACES - PHASE 2';
                 const splitText = doc.splitTextToSize(text, cell.width - 2);
                 doc.text(splitText, centerX, centerY + 2, { align: 'center' });
               }
@@ -229,80 +286,112 @@ export default function MonthlyInspectionReport() {
         });
       };
 
-      const drawFooter = () => {// adjusted footer
-  const footerY = pageHeight - 60;
+      // ── Updated drawFooter using selected signatories ──
+      const drawFooter = () => {
+        const footerY = pageHeight - 55;
+        doc.setFontSize(10);
+        doc.setFont('times', 'italic');
+        doc.text("Notes: Photos should have Geotagging (coordinates, date and time stamp)", 15, footerY);
 
-  // Notes
+        // Prepared by (left column)
+        doc.setFont('times', 'bold');
+        doc.text(`Prepared by: ${preparedBy.name}`, 15, footerY + 10);
+        doc.setFont('times', 'normal');
+        preparedBy.lines.forEach((line, i) => {
+          doc.text(line, 15, footerY + 15 + (i * 5));
+        });
 
-  doc.setFontSize(10);
-  doc.setFont('Palatino', 'italic');
-  doc.text("Notes: Photos should have Geotagging (coordinates, date and time stamp)", 12, footerY);
+        const rightColX = pageWidth / 2 + 10;
 
-  const drawSignatory = (label, name, roles, x, y) => {
-    doc.setFont('Palatino', 'normal');
-    doc.text(label, x, y);
-    const labelWidth = doc.getTextWidth(label);
-    doc.setFont('Palatino', 'bold');
-    doc.text(name, x + labelWidth, y);
-    // Underline
-    const nameWidth = doc.getTextWidth(name);
-    doc.setLineWidth(0.3);
-    doc.line(x + labelWidth, y + 1, x + labelWidth + nameWidth, y + 1);
-    // Roles centered under name
-    const nameCenterX = x + labelWidth + nameWidth / 2;
-    doc.setFont('Palatino', 'normal');
-    roles.forEach((role, i) => {
-      const roleWidth = doc.getTextWidth(role);
-      doc.text(role, nameCenterX - roleWidth / 2, y + 5.2 + (i * 5.2));
-    });
-  };
+        // Checked by (right column, top)
+        doc.setFont('times', 'bold');
+        doc.text(`Checked by: ${checkedBy.name}`, rightColX, footerY + 10);
+        doc.setFont('times', 'normal');
+        checkedBy.lines.forEach((line, i) => {
+          doc.text(line, rightColX, footerY + 15 + (i * 5));
+        });
 
-  const leftX = 15;
-  const rightX = pageWidth / 2 + 10;
-
-  drawSignatory("Prepared by: ", "Engr. Jason Ilde Y. Aguihon", ["Project Engineer"], leftX, footerY + 12);
-  drawSignatory("Checked by: ", "Engr. Cindy D. Camarines", ["Engineer II, FPIAP", "DICT Regional Office VIII"], rightX, footerY + 12);
-  drawSignatory("Noted by: ", "Ms. Claire P. Fernandez", ["Provincial Officer DICT Leyte"], rightX, footerY + 30);
-};
-
-      
+        // Noted by (right column, bottom)
+        doc.setFont('times', 'bold');
+        doc.text(`Noted by: ${notedBy.name}`, rightColX, footerY + 30);
+        doc.setFont('times', 'normal');
+        notedBy.lines.forEach((line, i) => {
+          doc.text(line, rightColX, footerY + 35 + (i * 5));
+        });
+      };
 
       const addImageToPage = (imgData, x, y, maxWidth, maxHeight) => {
-  if (imgData) {
-    try {
-      // fill: stretch to completely fill the cell, no gaps
-      doc.addImage(imgData, 'JPEG', x, y, maxWidth, maxHeight);
-    } catch (error) {
-      console.warn("Error adding image to PDF", error);
-      doc.text("[Image Error]", x + maxWidth / 2, y + maxHeight / 2, { align: 'center' });
-    }
-  }
-};
-     
+        if (imgData) {
+          try {
+            const props = doc.getImageProperties(imgData);
+            const ratio = props.width / props.height;
+            let w = maxWidth;
+            let h = w / ratio;
+            if (h > maxHeight) {
+              h = maxHeight;
+              w = h * ratio;
+            }
+
+            const newX = x + (maxWidth - w) / 2;
+            const newY = y + (maxHeight - h) / 2;
+
+            doc.addImage(imgData, 'JPEG', newX, newY, w, h);
+          } catch (error) {
+            console.warn("Error adding image to PDF", error);
+            doc.text("[Image Error]", x + maxWidth / 2, y + maxHeight / 2, { align: 'center' });
+          }
+        }
+      };
+
+      const drawImageGrid = (images, startY, containerHeight) => {
+        const gap = 10;
+        const padding = 8;
+        const availableWidth = pageWidth - 30 - padding * 2;
+        const availableHeight = containerHeight - padding * 2;
+
+        if (images.length === 5) {
+          const rowHeight = (availableHeight - gap) / 2;
+
+          const topRowY = startY + padding;
+          const topRowWidth = (availableWidth - gap) / 2;
+
+          addImageToPage(images[0], 15 + padding, topRowY, topRowWidth, rowHeight);
+          addImageToPage(images[1], 15 + padding + topRowWidth + gap, topRowY, topRowWidth, rowHeight);
+
+          const bottomRowY = startY + padding + rowHeight + gap;
+          const bottomRowWidth = (availableWidth - 2 * gap) / 3;
+
+          addImageToPage(images[2], 15 + padding, bottomRowY, bottomRowWidth, rowHeight);
+          addImageToPage(images[3], 15 + padding + bottomRowWidth + gap, bottomRowY, bottomRowWidth, rowHeight);
+          addImageToPage(images[4], 15 + padding + 2 * (bottomRowWidth + gap), bottomRowY, bottomRowWidth, rowHeight);
+
+        } else {
+          const cols = 2;
+          const rows = images.length <= 2 ? 1 : images.length <= 4 ? 2 : 3;
+          const cellWidth = (availableWidth - gap * (cols - 1)) / cols;
+          const cellHeight = (availableHeight - gap * (rows - 1)) / rows;
+
+          images.forEach((img, index) => {
+            if (index >= cols * rows) return;
+            const col = index % cols;
+            const row = Math.floor(index / cols);
+            const x = 15 + padding + col * (cellWidth + gap);
+            const y = startY + padding + row * (cellHeight + gap);
+            addImageToPage(img, x, y, cellWidth, cellHeight);
+          });
+        }
+      };
+
       // 1. TOP HEADER & PAGE 1 INFO
       drawHeader();
-       doc.setFontSize(12);
-      // Provider Name line //Sets the Provider name and specific date to BOLD
-      doc.setFont('Palatino', 'normal'); //changed font to Palatino
-      doc.text(`Provider Name: `, 15, doc.lastAutoTable.finalY + 10);
-      const providerLabelWidth = doc.getTextWidth('Provider Name: ');
-      doc.setFont('Palatino', 'bold'); // changed font to Palatino
-      doc.text(`FREQ IT SOLUTIONS`, 15 + providerLabelWidth, doc.lastAutoTable.finalY + 10);
-
-      // Date Prepared line
-      doc.setFont('Palatino', 'normal'); //changed font to Palatino
-      const dateLabel = `Date Prepared: `;
-      const dateValue = dayjs(reportDate).format('MMMM D, YYYY');
-      const dateLabelWidth = doc.getTextWidth(dateLabel);
-      const dateValueWidth = doc.getTextWidth(dateValue);
-      const totalWidth = dateLabelWidth + dateValueWidth;
-      doc.text(dateLabel, pageWidth - 15 - totalWidth, doc.lastAutoTable.finalY + 10);
-      doc.setFont('Palatino', 'bold'); // changed font to Palatino
-      doc.text(dateValue, pageWidth - 15 - dateValueWidth, doc.lastAutoTable.finalY + 10);
+      doc.setFontSize(12);
+      doc.setFont('times', 'bold');
+      doc.text(`Provider Name: FREQ IT SOLUTIONS`, 15, doc.lastAutoTable.finalY + 10);
+      doc.text(`Date Prepared: ${dayjs(reportDate).format('MMMM D, YYYY')}`, pageWidth - 15, doc.lastAutoTable.finalY + 10, { align: 'right' });
 
       // 2. MAIN DATA TABLE
       autoTable(doc, {
-        startY: doc.lastAutoTable.finalY + 15,
+        startY: doc.lastAutoTable.finalY + 20,
         head: [[
           'Item\nNo.',
           'Location Code',
@@ -312,11 +401,11 @@ export default function MonthlyInspectionReport() {
           'Contracted\nBandwidth\n(Mbps)',
           'Remarks'
         ]],
-        body: [//Made the Location name to Capital Letters
+        body: [
           [
-            { content: '1', rowSpan: 5, styles: { valign: 'middle', halign: 'center', textColor: [0, 0, 0] } },
-            { content: siteCode || 'N/A', rowSpan: 5, styles: { valign: 'middle', halign: 'center', textColor: [0, 0, 0]} },
-            { content: siteName?.toUpperCase() || 'N/A', rowSpan: 5, styles: { valign: 'middle', halign: 'center' } },
+            { content: '1', rowSpan: 4, styles: { valign: 'middle', halign: 'center', textColor: [0, 0, 0] } },
+            { content: siteCode || 'N/A', rowSpan: 4, styles: { valign: 'middle', halign: 'center', textColor: [0, 0, 0] } },
+            { content: siteName || 'N/A', rowSpan: 4, styles: { valign: 'middle', halign: 'left' } },
             speedTests[0].down,
             speedTests[0].up,
             { content: `${contractedBandwidth} Mbps`, rowSpan: 4, styles: { valign: 'middle', halign: 'center', textColor: [0, 0, 0] } },
@@ -326,54 +415,48 @@ export default function MonthlyInspectionReport() {
           [speedTests[2].down, speedTests[2].up],
           [speedTests[3].down, speedTests[3].up],
         ],
-        //Changed fontstyle, size and header color
         theme: 'grid',
-        headStyles: { 
-        fillColor: [155, 201, 235],
-        textColor: [0, 0, 0], 
-        fontStyle: 'bold', 
-        font: 'Palatino', // ✅
-        halign: 'center',
-        valign: 'middle',
-        minCellHeight: 21,
-        lineWidth: 0.1,
-        lineColor: [0, 0, 0]
+        headStyles: {
+          fillColor: [135, 206, 235],
+          textColor: [0, 0, 0],
+          fontStyle: 'bold',
+          halign: 'center',
+          valign: 'middle',
+          lineWidth: 0.1,
+          lineColor: [0, 0, 0]
         },
-        bodyStyles: { 
-        textColor: [0, 0, 0], 
-        halign: 'center',
-        valign: 'middle',
-        font: 'Palatino',
-        fontStyle: 'bold', // ✅
-        fontSize: 12,      // ✅
-        lineWidth: 0.1,
-        lineColor: [0, 0, 0]
+        bodyStyles: {
+          textColor: [0, 0, 0],
+          halign: 'center',
+          valign: 'middle',
+          lineWidth: 0.1,
+          lineColor: [0, 0, 0]
         },
-        styles: { 
-        fontSize: 10, 
-        textColor: [0, 0, 0],
-        halign: 'center',
-        font: 'Palatino', // ✅
-        lineWidth: 0.1,
-        lineColor: [0, 0, 0]
+        styles: {
+          fontSize: 8,
+          halign: 'center',
+          lineWidth: 0.1,
+          lineColor: [0, 0, 0]
         },
+        columnStyles: {
+          2: { halign: 'left', cellWidth: 40 },
+          6: { cellWidth: 25 }
+        }
       });
 
       drawFooter();
 
-      // 3. ATTACHMENT 1: EQUIPMENT PHOTOS (Combox) // Changed font to Palatino
+      // 3. ATTACHMENT 1: EQUIPMENT PHOTOS (Combox)
       doc.addPage();
       drawHeader();
       drawFooter();
-      let currentY = 55;
+      let currentY = 50;
       doc.setFontSize(11);
-      doc.setFont('Palatino', 'bold');
-      doc.text("ATTACHMENT 1", pageWidth / 2, currentY, { align: 'center' });
-      doc.setFont('Palatino', 'normal');
-      doc.text("EQUIPMENT PHOTOS", pageWidth / 2, currentY + 6, { align: 'center' });
-      currentY += 14;
+      doc.setFont('times', 'bold');
+      doc.text("ATTACHMENT 1: EQUIPMENT PHOTOS", pageWidth / 2, currentY, { align: 'center' });
+      currentY += 5;
 
-      const sectionHeight = 165;
+      const sectionHeight = 180;
       doc.setDrawColor(0);
       doc.setLineWidth(0.1);
       doc.rect(15, currentY, pageWidth - 30, sectionHeight);
@@ -386,121 +469,61 @@ export default function MonthlyInspectionReport() {
       }
 
       // 4. ATTACHMENT 1: ADDITIONAL PHOTOS
-      
- if (additionalImages.length > 0) {
-  doc.addPage();
-  drawHeader();
-  drawFooter();
-  doc.setFontSize(11);
-  doc.setFont('Palatino', 'bold');
-  const titleY = 50;
-  doc.text("ATTACHMENT 1", pageWidth / 2, titleY, { align: 'center' });
-  doc.setFont('Palatino', 'normal');
-  doc.text("ACCESS POINTS", pageWidth / 2, titleY + 6, { align: 'center' });
+      if (additionalImages.length > 0) {
+        doc.addPage();
+        drawHeader();
+        drawFooter();
+        doc.setFontSize(11);
+        doc.setFont('times', 'bold');
+        const titleY = 50;
+        doc.text("ATTACHMENT 1: EQUIPMENT PHOTOS (Access Points)", pageWidth / 2, titleY, { align: 'center' });
 
-  const margin = 12.7;
-  const gridStartY = titleY + 14;
-  const gridEndY = pageHeight - 65;
-  const gridHeight = gridEndY - gridStartY;
+        const gridStartY = titleY + 5;
+        const gridHeight = pageHeight - gridStartY - 60;
+        doc.rect(15, gridStartY, pageWidth - 30, gridHeight);
+        drawImageGrid(additionalImages, gridStartY, gridHeight);
+      }
 
-  doc.rect(margin, gridStartY, pageWidth - margin * 2, gridHeight);
-
-  const innerPadding = 8; // 
-  const gapX = 8;         // 
-  const gapY = 8;         // 
-
-  const totalWidth = pageWidth - margin * 2 - innerPadding * 2;
-  const totalHeight = gridHeight - innerPadding * 2;
-
-  const cellWidth = (totalWidth - gapX) / 2;  // 
-  const cellHeight = (totalHeight - gapY) / 2; // 
-
-  const positions = [
-    { col: 0, row: 0 },
-    { col: 1, row: 0 },
-    { col: 0, row: 1 },
-    { col: 1, row: 1 },
-  ];
-
-  additionalImages.slice(0, 4).forEach((img, index) => {
-    const { col, row } = positions[index];
-    const x = margin + innerPadding + col * (cellWidth + gapX); // 
-    const y = gridStartY + innerPadding + row * (cellHeight + gapY); // 
-    addImageToPage(img, x, y, cellWidth, cellHeight);
-  });
-}
       // 5. ATTACHMENT 2: BW TEST RESULTS
       doc.addPage();
-drawHeader();
-drawFooter();
-doc.setFontSize(11);
-doc.setFont('Palatino', 'bold');
-const bwTitleY = 50;
-doc.text("ATTACHMENT 2", pageWidth / 2, bwTitleY, { align: 'center' });
-doc.setFont('Palatino', 'normal');
-doc.text("DOWNLINK AND UPLINK TEST RESULTS", pageWidth / 2, bwTitleY + 6, { align: 'center' });
+      drawHeader();
+      drawFooter();
+      doc.setFontSize(11);
+      doc.setFont('times', 'bold');
+      const bwTitleY = 50;
+      doc.text("ATTACHMENT 2: BANDWIDTH TEST RESULTS", pageWidth / 2, bwTitleY, { align: 'center' });
 
-const bwMargin = 12.7;
-const bwGridStartY = bwTitleY + 14;
-const bwGridEndY = pageHeight - 65;
-const bwGridHeight = bwGridEndY - bwGridStartY;
+      const bwGridStartY = bwTitleY + 5;
+      const bwGridHeight = pageHeight - bwGridStartY - 60;
+      doc.rect(15, bwGridStartY, pageWidth - 30, bwGridHeight);
 
-doc.rect(bwMargin, bwGridStartY, pageWidth - bwMargin * 2, bwGridHeight);
-
-const bwInnerPadding = 8;
-const bwGapX = 8;
-const bwGapY = 8;
-
-const bwTotalWidth = pageWidth - bwMargin * 2 - bwInnerPadding * 2;
-const bwTotalHeight = bwGridHeight - bwInnerPadding * 2;
-
-const bwCellWidth = (bwTotalWidth - bwGapX) / 2;
-const bwCellHeight = (bwTotalHeight - bwGapY) / 2;
-
-const bwPositions = [
-  { col: 0, row: 0 },
-  { col: 1, row: 0 },
-  { col: 0, row: 1 },
-  { col: 1, row: 1 },
-];
-
-if (speedtestImages.length > 0) {
-  speedtestImages.slice(0, 4).forEach((img, index) => {
-    const { col, row } = bwPositions[index];
-    const x = bwMargin + bwInnerPadding + col * (bwCellWidth + bwGapX);
-    const y = bwGridStartY + bwInnerPadding + row * (bwCellHeight + bwGapY);
-    addImageToPage(img, x, y, bwCellWidth, bwCellHeight);
-  });
-} else {
-  doc.setFont('Palatino', 'italic');
-  doc.setFontSize(10);
-  doc.text("[No Speedtest Images Uploaded]", pageWidth / 2, bwGridStartY + bwGridHeight / 2, { align: 'center' });
-}
+      if (speedtestImages.length > 0) {
+        drawImageGrid(speedtestImages, bwGridStartY, bwGridHeight);
+      } else {
+        doc.setFont('times', 'italic');
+        doc.setFontSize(10);
+        doc.text("[No Speedtest Images Uploaded]", pageWidth / 2, bwGridStartY + bwGridHeight / 2, { align: 'center' });
+      }
 
       // 6. ATTACHMENT 3: SITE PICTURES
       doc.addPage();
       drawHeader();
       drawFooter();
       doc.setFontSize(11);
-      doc.setFont('Palatino', 'bold');// Changed font to Palatino
-      const siteTitleY = 55; // 
-      doc.setFontSize(11);
-      doc.setFont('Palatino', 'bold');
-      doc.text("ATTACHMENT 3", pageWidth / 2, siteTitleY, { align: 'center' });
-      doc.setFont('Palatino', 'normal');
-      doc.text("SITE INSPECTION PICTURES", pageWidth / 2, siteTitleY + 6, { align: 'center' });
+      doc.setFont('times', 'bold');
+      const siteTitleY = 50;
+      doc.text("ATTACHMENT 3: SITE PICTURES", pageWidth / 2, siteTitleY, { align: 'center' });
 
-      const siteSectionY = siteTitleY + 14; // 
-      const siteHeight = pageHeight - siteSectionY - 65; // 
-      doc.rect(15, siteSectionY, pageWidth - 30, siteHeight);
+      const siteSectionY = siteTitleY + 5;
+      doc.rect(15, siteSectionY, pageWidth - 30, sectionHeight);
 
       if (siteInspectionImage) {
-      const imageMargin = 8;
-      addImageToPage(siteInspectionImage, 15 + 1, siteSectionY + imageMargin, pageWidth - 32, siteHeight - imageMargin * 2);
+        const imageMargin = 8;
+        addImageToPage(siteInspectionImage, 15 + 1, siteSectionY + 1 + imageMargin, pageWidth - 32, sectionHeight - 2 - imageMargin * 2);
       } else {
-      doc.setFont('Palatino', 'italic');
-      doc.setFontSize(10);
-      doc.text("[No Site Inspection Image Uploaded]", pageWidth / 2, siteSectionY + siteHeight / 2, { align: 'center' });
+        doc.setFont('times', 'italic');
+        doc.setFontSize(10);
+        doc.text("[No Site Inspection Image Uploaded]", pageWidth / 2, siteSectionY + sectionHeight / 2, { align: 'center' });
       }
 
       const pdfBlob = doc.output("blob");
@@ -557,49 +580,62 @@ if (speedtestImages.length > 0) {
     }
   };
 
-  // ── Validate speed tests before proceeding to next step ──
+  // ── Navigate AP tabs with validation; go to Attachments after last AP ──
   const handleNextClick = () => {
-    const missing = speedTests
-      .map((test, i) => {
-        if (!test.down && !test.up) return `AP ${i + 1} (Download & Upload)`;
-        if (!test.down) return `AP ${i + 1} (Download)`;
-        if (!test.up) return `AP ${i + 1} (Upload)`;
-        return null;
-      })
-      .filter(Boolean);
+    const currentTest = speedTests[activeSpeedTestTab];
+    const missingDown = !currentTest.down;
+    const missingUp = !currentTest.up;
 
-    if (missing.length > 0) {
-  Swal.fire({
-    icon: 'warning',
-    title: 'Missing Speed Test Data',
-    html: `
-      <p class="text-slate-400 text-sm mb-3">Please fill in the following fields:</p>
-      <ul class="space-y-2">
-        ${missing.map(m => `
-          <li class="flex items-center gap-2 bg-blue-500/10 border border-blue-500/20 rounded-lg px-3 py-2 text-blue-300 text-sm font-medium">
-            <span class="w-1.5 h-1.5 rounded-full bg-blue-400 shrink-0"></span>
-            ${m}
-          </li>
-        `).join('')}
-      </ul>
-    `,
-    confirmButtonText: 'Go Back',
-    background: '#1d2836',
-    color: '#e2e1e1',
-    confirmButtonColor: '#3b82f6',
-    customClass: {
-      popup: '!rounded-2xl !border !border-white/10 !shadow-2xl',
-      title: '!text-white !text-lg !font-semibold',
-      confirmButton: '!rounded-xl !px-6 !font-medium',
-    },
-  });
-  return;
-}
+    if (missingDown || missingUp) {
+      const missing = [];
+      if (missingDown) missing.push('Download');
+      if (missingUp) missing.push('Upload');
+
+      Swal.fire({
+        icon: 'warning',
+        title: `Missing AP ${activeSpeedTestTab + 1} Data`,
+        html: `
+          Please fill in the following:
+          <ul style="text-align: center; margin-top: 8px;">
+            ${missing.map(m => `<li>${m}</li>`).join('')}
+          </ul>
+        `,
+        confirmButtonText: 'Go Back',
+        background: '#1f2b3a',
+        color: '#e2e1e1',
+        confirmButtonColor: '#3b82f6',
+      });
+      return;
+    }
+
+    if (activeSpeedTestTab < speedTests.length - 1) {
+      setActiveSpeedTestTab(activeSpeedTestTab + 1);
+      return;
+    }
 
     setActiveSectionTab(1);
   };
 
+  // ── Reset all form fields when a new site is selected ──
+  const handleSiteSelect = (id) => {
+    setSelectedSite(id);
+    setPdfUrl(null);
+    setPdfBlob(null);
 
+    setSpeedTests(Array(4).fill(null).map(() => ({ down: '', up: '' })));
+    setActiveSpeedTestTab(0);
+    setActiveSectionTab(0);
+
+    setComboxImage(null);
+    setAdditionalImages([]);
+    setSpeedtestImages([]);
+    setSiteInspectionImage(null);
+
+    // Reset signatories to defaults
+    setPreparedBy(PREPARED_BY_OPTIONS[0]);
+    setCheckedBy(CHECKED_BY_OPTIONS[0]);
+    setNotedBy(NOTED_BY_OPTIONS[0]);
+  };
 
   return (
     <main className="p-4 sm:p-8 bg-gradient-to-br from-gray-900 via-gray-800 to-black min-h-screen text-white">
@@ -612,7 +648,7 @@ if (speedtestImages.length > 0) {
               loading={loadingSites}
               selectedSite={selectedSite}
               searchTerm={siteSearchTerm}
-              onSiteSelect={(id) => { setSelectedSite(id); setPdfUrl(null); }}
+              onSiteSelect={handleSiteSelect}
               onSearchChange={setSiteSearchTerm}
             />
           </div>
@@ -648,6 +684,46 @@ if (speedtestImages.length > 0) {
                     <div className="flex flex-col gap-1">
                       <label className="text-sm text-gray-300">Contracted Bandwidth (Mbps)</label>
                       <input type="text" value={contractedBandwidth} onChange={(e) => setContractedBandwidth(e.target.value)} className="bg-white/5 border border-white/20 p-3 rounded-xl outline-none" />
+                    </div>
+
+                    {/* ── Signatory Dropdowns ── */}
+                    <div className="flex flex-col gap-1">
+                      <label className="text-sm text-gray-300">Prepared by</label>
+                      <select
+                        value={preparedBy.name}
+                        onChange={(e) => setPreparedBy(PREPARED_BY_OPTIONS.find(o => o.name === e.target.value))}
+                        className="bg-white/5 border border-white/20 p-3 rounded-xl outline-none text-white"
+                      >
+                        {PREPARED_BY_OPTIONS.map(o => (
+                          <option key={o.name} value={o.name} className="bg-gray-800 text-white">{o.name}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="flex flex-col gap-1">
+                      <label className="text-sm text-gray-300">Checked by</label>
+                      <select
+                        value={checkedBy.name}
+                        onChange={(e) => setCheckedBy(CHECKED_BY_OPTIONS.find(o => o.name === e.target.value))}
+                        className="bg-white/5 border border-white/20 p-3 rounded-xl outline-none text-white"
+                      >
+                        {CHECKED_BY_OPTIONS.map(o => (
+                          <option key={o.name} value={o.name} className="bg-gray-800 text-white">{o.name}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="flex flex-col gap-1 md:col-span-2">
+                      <label className="text-sm text-gray-300">Noted by</label>
+                      <select
+                        value={notedBy.name}
+                        onChange={(e) => setNotedBy(NOTED_BY_OPTIONS.find(o => o.name === e.target.value))}
+                        className="bg-white/5 border border-white/20 p-3 rounded-xl outline-none text-white"
+                      >
+                        {NOTED_BY_OPTIONS.map(o => (
+                          <option key={o.name} value={o.name} className="bg-gray-800 text-white">{o.name}</option>
+                        ))}
+                      </select>
                     </div>
                   </div>
 
@@ -735,7 +811,7 @@ if (speedtestImages.length > 0) {
                               type="button"
                               onClick={() => setActiveSpeedTestTab(index)}
                               className={`
-                                relative flex-1 py-3 text-xs font-semibold tracking-wider uppercase transition-all duration-200
+                                relative flex-1 py-3 text-xs font-semibold tracking-wider uppercase transition-all duration-200 cursor-pointer
                                 ${isActive ? 'text-white -translate-y-0.3 scale-105' : 'text-gray-500 hover:text-gray-300'}
                               `}
                             >
@@ -743,7 +819,7 @@ if (speedtestImages.length > 0) {
                                 <span className="absolute inset-0 bg-gradient-to-b from-blue-600/20 to-transparent pointer-events-none" />
                               )}
                               <span className="relative flex flex-col items-center gap-1">
-                                <span>Test {index + 1}</span>
+                                <span>AP {index + 1}</span>
                                 {hasData && (
                                   <span className={`w-1 h-1 rounded-full ${isActive ? 'bg-blue-400' : 'bg-gray-600'}`} />
                                 )}
@@ -760,63 +836,67 @@ if (speedtestImages.length > 0) {
                         {speedTests.map((test, index) => (
                           <div key={index} className={activeSpeedTestTab === index ? 'block' : 'hidden'}>
                             <div className="grid grid-cols-2 gap-4">
-                              <div className="rounded-xl bg-gradient-to-br from-green-500/10 to-green-400/5 border border-green-500/20 p-4 hover:border-green-500/40 transition-all duration-200">
+                              {/* Download */}
+                              <div className="rounded-xl bg-gradient-to-br from-cyan-500/10 to-cyan-400/5 border border-cyan-500/20 p-4 hover:border-cyan-500/40 transition-all duration-200">
                                 <div className="flex items-center gap-2 mb-3">
-                                  <div className="w-7 h-7 rounded-lg bg-green-500/20 flex items-center justify-center">
-                                    <svg className="w-3.5 h-3.5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <div className="w-7 h-7 rounded-lg bg-cyan-500/20 flex items-center justify-center">
+                                    <svg className="w-3.5 h-3.5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
                                     </svg>
                                   </div>
-                                  <label className="text-xs font-semibold text-green-400 uppercase tracking-wider">Download</label>
+                                  <label className="text-xs font-semibold text-cyan-400 uppercase tracking-wider">Download</label>
                                 </div>
                                 <input
                                   type="text"
                                   placeholder="0.00"
                                   value={test.down}
-                                  onChange={(e) => handleSpeedTestChange(index, 'down', e.target.value)}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                                      handleSpeedTestChange(index, 'down', val);
+                                    }
+                                  }}
                                   className="w-full bg-transparent outline-none text-2xl font-bold text-white placeholder-white/20 text-center transition-all"
                                 />
-                                <p className="text-center text-xs text-green-400/50 mt-1">Mbps</p>
+                                <p className="text-center text-xs text-cyan-400/50 mt-1">Mbps</p>
                               </div>
-                              <div className="rounded-xl bg-gradient-to-br from-blue-500/10 to-blue-400/5 border border-blue-500/20 p-4 hover:border-blue-500/40 transition-all duration-200">
+                              {/* Upload */}
+                              <div className="rounded-xl bg-gradient-to-br from-purple-500/10 to-purple-400/5 border border-purple-500/20 p-4 hover:border-purple-500/40 transition-all duration-200">
                                 <div className="flex items-center gap-2 mb-3">
-                                  <div className="w-7 h-7 rounded-lg bg-blue-500/20 flex items-center justify-center">
-                                    <svg className="w-3.5 h-3.5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <div className="w-7 h-7 rounded-lg bg-purple-500/20 flex items-center justify-center">
+                                    <svg className="w-3.5 h-3.5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 10l7-7m0 0l7 7m-7-7v18" />
                                     </svg>
                                   </div>
-                                  <label className="text-xs font-semibold text-blue-400 uppercase tracking-wider">Upload</label>
+                                  <label className="text-xs font-semibold text-purple-400 uppercase tracking-wider">Upload</label>
                                 </div>
                                 <input
                                   type="text"
                                   placeholder="0.00"
                                   value={test.up}
-                                  onChange={(e) => handleSpeedTestChange(index, 'up', e.target.value)}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                                      handleSpeedTestChange(index, 'up', val);
+                                    }
+                                  }}
                                   className="w-full bg-transparent outline-none text-2xl font-bold text-white placeholder-white/20 text-center transition-all"
                                 />
-                                <p className="text-center text-xs text-blue-400/50 mt-1">Mbps</p>
-                              </div>
-                            </div>
-                            <div className="mt-4 flex items-center justify-between px-1">
-                              <span className="text-xs text-gray-600 font-medium">Test {index + 1} of {speedTests.length}</span>
-                              <div className="flex gap-4">
-                                {test.down ? <span className="text-xs font-semibold text-green-400">↓ {test.down} Mbps</span> : <span className="text-xs text-gray-700">↓ —</span>}
-                                {test.up ? <span className="text-xs font-semibold text-blue-400">↑ {test.up} Mbps</span> : <span className="text-xs text-gray-700">↑ —</span>}
+                                <p className="text-center text-xs text-purple-400/50 mt-1">Mbps</p>
                               </div>
                             </div>
                           </div>
                         ))}
                       </div>
 
+                      {/* Next button */}
                       <div className="px-5 pb-5 pt-2">
                         <button
                           type="button"
                           onClick={handleNextClick}
-                          
-                          
                           className="w-full bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 py-3.5 rounded-xl font-bold transition-all shadow-lg shadow-blue-900/20 flex items-center justify-center gap-2 text-sm"
                         >
-                          <span>Next</span>
+                          <span>{activeSpeedTestTab < speedTests.length - 1 ? `Next — AP ${activeSpeedTestTab + 2}` : 'Next — Attachments'}</span>
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                           </svg>
@@ -851,11 +931,21 @@ if (speedtestImages.length > 0) {
                                   </div>
                                 </div>
                               ) : (
-                                <label className="cursor-pointer flex flex-col items-center justify-center aspect-square rounded-lg border-2 border-dashed border-white/10 hover:border-purple-500/40 hover:bg-purple-500/5 transition-all group">
-                                  <svg className="w-6 h-6 text-gray-600 group-hover:text-purple-400 transition-colors mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <label
+                                  className={`cursor-pointer flex flex-col items-center justify-center aspect-square rounded-lg border-2 border-dashed transition-all group
+                                    ${draggingOver === 'combox'
+                                      ? 'border-purple-400 bg-purple-500/15 scale-[1.02]'
+                                      : 'border-white/10 hover:border-purple-500/40 hover:bg-purple-500/5'}`}
+                                  onDragOver={(e) => handleDragOver(e, 'combox')}
+                                  onDragLeave={handleDragLeave}
+                                  onDrop={(e) => handleDrop(e, 'combox', setComboxImage, false)}
+                                >
+                                  <svg className={`w-6 h-6 mb-1 transition-colors ${draggingOver === 'combox' ? 'text-purple-400' : 'text-gray-600 group-hover:text-purple-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                                   </svg>
-                                  <span className="text-[10px] text-gray-600 group-hover:text-purple-400 transition-colors">Upload</span>
+                                  <span className={`text-[10px] transition-colors ${draggingOver === 'combox' ? 'text-purple-400' : 'text-gray-600 group-hover:text-purple-400'}`}>
+                                    {draggingOver === 'combox' ? 'Drop here' : 'Upload or drag'}
+                                  </span>
                                   <input type="file" accept="image/*" className="hidden" onChange={(e) => handleImageUpload(e, setComboxImage)} />
                                 </label>
                               )}
@@ -883,11 +973,21 @@ if (speedtestImages.length > 0) {
                                   </div>
                                 </div>
                               ) : (
-                                <label className="cursor-pointer flex flex-col items-center justify-center aspect-square rounded-lg border-2 border-dashed border-white/10 hover:border-purple-500/40 hover:bg-purple-500/5 transition-all group">
-                                  <svg className="w-6 h-6 text-gray-600 group-hover:text-purple-400 transition-colors mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <label
+                                  className={`cursor-pointer flex flex-col items-center justify-center aspect-square rounded-lg border-2 border-dashed transition-all group
+                                    ${draggingOver === 'site'
+                                      ? 'border-purple-400 bg-purple-500/15 scale-[1.02]'
+                                      : 'border-white/10 hover:border-purple-500/40 hover:bg-purple-500/5'}`}
+                                  onDragOver={(e) => handleDragOver(e, 'site')}
+                                  onDragLeave={handleDragLeave}
+                                  onDrop={(e) => handleDrop(e, 'site', setSiteInspectionImage, false)}
+                                >
+                                  <svg className={`w-6 h-6 mb-1 transition-colors ${draggingOver === 'site' ? 'text-purple-400' : 'text-gray-600 group-hover:text-purple-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                                   </svg>
-                                  <span className="text-[10px] text-gray-600 group-hover:text-purple-400 transition-colors">Upload</span>
+                                  <span className={`text-[10px] transition-colors ${draggingOver === 'site' ? 'text-purple-400' : 'text-gray-600 group-hover:text-purple-400'}`}>
+                                    {draggingOver === 'site' ? 'Drop here' : 'Upload or drag'}
+                                  </span>
                                   <input type="file" accept="image/*" className="hidden" onChange={(e) => handleImageUpload(e, setSiteInspectionImage)} />
                                 </label>
                               )}
@@ -897,9 +997,9 @@ if (speedtestImages.length > 0) {
 
                         {/* Multi-image rows */}
                         {[
-                          { label: 'Equipment Photos', sublabel: 'Access points, cables, hardware', images: additionalImages, setter: setAdditionalImages, onAdd: (e) => handleImageUpload(e, setAdditionalImages, true) },
-                          { label: 'Speedtest Results', sublabel: 'Bandwidth test screenshots', images: speedtestImages, setter: setSpeedtestImages, onAdd: (e) => handleImageUpload(e, setSpeedtestImages, true) },
-                        ].map(({ label, sublabel, images, setter, onAdd }) => (
+                          { label: 'Equipment Photos', sublabel: 'Access points, cables, hardware', zone: 'equipment', images: additionalImages, setter: setAdditionalImages, onAdd: (e) => handleImageUpload(e, setAdditionalImages, true) },
+                          { label: 'Speedtest Results', sublabel: 'Bandwidth test screenshots', zone: 'speedtest', images: speedtestImages, setter: setSpeedtestImages, onAdd: (e) => handleImageUpload(e, setSpeedtestImages, true) },
+                        ].map(({ label, sublabel, zone, images, setter, onAdd }) => (
                           <div key={label} className="rounded-xl border border-white/10 bg-white/5 overflow-hidden">
                             <div className="px-4 py-2.5 border-b border-white/10 flex items-center justify-between">
                               <div>
@@ -910,7 +1010,12 @@ if (speedtestImages.length > 0) {
                                 {images.length} / 4
                               </span>
                             </div>
-                            <div className="p-4">
+                            <div
+                              className={`p-4 transition-colors duration-150 ${draggingOver === zone ? 'bg-purple-500/10' : ''}`}
+                              onDragOver={(e) => images.length < 4 ? handleDragOver(e, zone) : e.preventDefault()}
+                              onDragLeave={handleDragLeave}
+                              onDrop={(e) => handleDrop(e, zone, setter, true)}
+                            >
                               <div className="grid grid-cols-4 gap-3">
                                 {images.map((img, idx) => (
                                   <div key={idx} className="relative group aspect-square rounded-xl overflow-hidden bg-black/20 border border-white/10 hover:border-white/20 transition-all shadow-md">
@@ -931,13 +1036,21 @@ if (speedtestImages.length > 0) {
                                   </div>
                                 ))}
                                 {images.length < 4 && (
-                                  <label className="cursor-pointer aspect-square rounded-xl border-2 border-dashed border-white/10 hover:border-purple-500/40 hover:bg-purple-500/5 flex flex-col items-center justify-center transition-all group shadow-md">
-                                    <div className="w-8 h-8 rounded-full bg-white/5 group-hover:bg-purple-500/20 flex items-center justify-center transition-all mb-1">
-                                      <svg className="w-4 h-4 text-gray-600 group-hover:text-purple-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <label
+                                    className={`cursor-pointer aspect-square rounded-xl border-2 border-dashed flex flex-col items-center justify-center transition-all group shadow-md
+                                      ${draggingOver === zone
+                                        ? 'border-purple-400 bg-purple-500/20 scale-[1.03]'
+                                        : 'border-white/10 hover:border-purple-500/40 hover:bg-purple-500/5'}`}
+                                  >
+                                    <div className={`w-8 h-8 rounded-full flex items-center justify-center transition-all mb-1
+                                      ${draggingOver === zone ? 'bg-purple-500/30' : 'bg-white/5 group-hover:bg-purple-500/20'}`}>
+                                      <svg className={`w-4 h-4 transition-colors ${draggingOver === zone ? 'text-purple-300' : 'text-gray-600 group-hover:text-purple-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                                       </svg>
                                     </div>
-                                    <span className="text-[10px] text-gray-600 group-hover:text-purple-400 transition-colors font-medium">Add</span>
+                                    <span className={`text-[10px] transition-colors font-medium ${draggingOver === zone ? 'text-purple-300' : 'text-gray-600 group-hover:text-purple-400'}`}>
+                                      {draggingOver === zone ? 'Drop here' : 'Add'}
+                                    </span>
                                     <input type="file" accept="image/*" multiple className="hidden" onChange={onAdd} />
                                   </label>
                                 )}
@@ -946,7 +1059,6 @@ if (speedtestImages.length > 0) {
                           </div>
                         ))}
                       </div>
-
                       {/* Generate button */}
                       <div className="pt-2">
                         <button
@@ -962,7 +1074,7 @@ if (speedtestImages.length > 0) {
                           ) : (
                             <>
                               <span>Generate Monthly Report</span>
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                               </svg>
                             </>
@@ -1015,8 +1127,6 @@ if (speedtestImages.length > 0) {
           )}
         </div>
       </div>
-
-      {/* Lightbox */}
       {lightboxImage && (
         <div
           className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
