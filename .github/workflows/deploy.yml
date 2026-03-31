@@ -20,12 +20,26 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.PORT }}
+          timeout: 60s
+          command_timeout: 20m
           script: |
             cd /srv/pics-nms
-            git fetch origin main
-            git reset --hard origin/main
+            
+            # 1. Initialize Git if the folder is just loose files
+            if [ ! -d .git ]; then
+              git init
+              git remote add origin git@github.com:freqitsupp0rt/pics.git
+            fi
+            
+            # 2. Sync with the 'pics' branch
+            git fetch origin pics
+            git reset --hard origin/pics
+            
+            # 3. Clean Build
             npm install
             rm -rf .next
             npm run build
-            pm2 restart pics
+            
+            # 4. Restart with path enforcement
+            pm2 restart pics --update-env --cwd /srv/pics-nms
             pm2 save
