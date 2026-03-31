@@ -75,6 +75,7 @@ export default function MonthlyInspectionReport() {
   const [additionalImages, setAdditionalImages] = useState([]);
   const [speedtestImages, setSpeedtestImages] = useState([]);
   const [siteInspectionImage, setSiteInspectionImage] = useState(null);
+  const [lightboxImage, setLightboxImage] = useState(null);
 
   const handleImageUpload = (e, setter, isMultiple = false) => {
     const files = Array.from(e.target.files);
@@ -84,7 +85,10 @@ export default function MonthlyInspectionReport() {
       const reader = new FileReader();
       reader.onload = (event) => {
         if (isMultiple) {
-          setter(prev => [...prev, event.target.result]);
+          setter(prev => {
+            if (prev.length >= 4) return prev;
+            return [...prev, event.target.result];
+          });
         } else {
           setter(event.target.result);
         }
@@ -510,6 +514,50 @@ export default function MonthlyInspectionReport() {
     }
   };
 
+  // ── Validate speed tests before proceeding to next step ──
+  const handleNextClick = () => {
+    const missing = speedTests
+      .map((test, i) => {
+        if (!test.down && !test.up) return `AP ${i + 1} (Download & Upload)`;
+        if (!test.down) return `AP ${i + 1} (Download)`;
+        if (!test.up) return `AP ${i + 1} (Upload)`;
+        return null;
+      })
+      .filter(Boolean);
+
+    if (missing.length > 0) {
+  Swal.fire({
+    icon: 'warning',
+    title: 'Missing Speed Test Data',
+    html: `
+      <p class="text-slate-400 text-sm mb-3">Please fill in the following fields:</p>
+      <ul class="space-y-2">
+        ${missing.map(m => `
+          <li class="flex items-center gap-2 bg-blue-500/10 border border-blue-500/20 rounded-lg px-3 py-2 text-blue-300 text-sm font-medium">
+            <span class="w-1.5 h-1.5 rounded-full bg-blue-400 shrink-0"></span>
+            ${m}
+          </li>
+        `).join('')}
+      </ul>
+    `,
+    confirmButtonText: 'Go Back',
+    background: '#1d2836',
+    color: '#e2e1e1',
+    confirmButtonColor: '#3b82f6',
+    customClass: {
+      popup: '!rounded-2xl !border !border-white/10 !shadow-2xl',
+      title: '!text-white !text-lg !font-semibold',
+      confirmButton: '!rounded-xl !px-6 !font-medium',
+    },
+  });
+  return;
+}
+
+    setActiveSectionTab(1);
+  };
+
+
+
   return (
     <main className="p-4 sm:p-8 bg-gradient-to-br from-gray-900 via-gray-800 to-black min-h-screen text-white">
       <div className="container mx-auto flex flex-col lg:flex-row gap-6">
@@ -606,7 +654,6 @@ export default function MonthlyInspectionReport() {
                               <span className={`absolute inset-0 pointer-events-none ${tab.accent === 'blue' ? 'bg-gradient-to-b from-blue-600/15 to-transparent' : 'bg-gradient-to-b from-purple-600/15 to-transparent'}`} />
                             )}
                             <span className="relative flex items-center gap-2">
-                              {/* Step icon */}
                               <span className={`
                                 w-6 h-6 rounded-lg flex items-center justify-center shrink-0
                                 ${isActive
@@ -625,7 +672,6 @@ export default function MonthlyInspectionReport() {
                             {isActive && (
                               <span className={`absolute bottom-0 left-1/2 -translate-x-1/2 h-0.5 w-16 rounded-full ${tab.accent === 'blue' ? 'bg-blue-500' : 'bg-purple-500'}`} />
                             )}
-                            {/* Divider between steps */}
                             {i < 1 && (
                               <span className="absolute right-0 top-1/2 -translate-y-1/2 h-4 w-px bg-white/10" />
                             )}
@@ -636,7 +682,6 @@ export default function MonthlyInspectionReport() {
 
                     {/* ── Panel 0: Speed Test Results ── */}
                     <div className={activeSectionTab === 0 ? 'block' : 'hidden'}>
-                      {/* Inner speed-test tabs */}
                       <div className="flex border-b border-white/10 bg-black/20">
                         {speedTests.map((test, index) => {
                           const hasData = test.down || test.up;
@@ -672,7 +717,6 @@ export default function MonthlyInspectionReport() {
                         {speedTests.map((test, index) => (
                           <div key={index} className={activeSpeedTestTab === index ? 'block' : 'hidden'}>
                             <div className="grid grid-cols-2 gap-4">
-                              {/* Download */}
                               <div className="rounded-xl bg-gradient-to-br from-green-500/10 to-green-400/5 border border-green-500/20 p-4 hover:border-green-500/40 transition-all duration-200">
                                 <div className="flex items-center gap-2 mb-3">
                                   <div className="w-7 h-7 rounded-lg bg-green-500/20 flex items-center justify-center">
@@ -691,7 +735,6 @@ export default function MonthlyInspectionReport() {
                                 />
                                 <p className="text-center text-xs text-green-400/50 mt-1">Mbps</p>
                               </div>
-                              {/* Upload */}
                               <div className="rounded-xl bg-gradient-to-br from-blue-500/10 to-blue-400/5 border border-blue-500/20 p-4 hover:border-blue-500/40 transition-all duration-200">
                                 <div className="flex items-center gap-2 mb-3">
                                   <div className="w-7 h-7 rounded-lg bg-blue-500/20 flex items-center justify-center">
@@ -711,7 +754,6 @@ export default function MonthlyInspectionReport() {
                                 <p className="text-center text-xs text-blue-400/50 mt-1">Mbps</p>
                               </div>
                             </div>
-                            {/* Summary */}
                             <div className="mt-4 flex items-center justify-between px-1">
                               <span className="text-xs text-gray-600 font-medium">Test {index + 1} of {speedTests.length}</span>
                               <div className="flex gap-4">
@@ -723,11 +765,12 @@ export default function MonthlyInspectionReport() {
                         ))}
                       </div>
 
-                      {/* Next button */}
                       <div className="px-5 pb-5 pt-2">
                         <button
                           type="button"
-                          onClick={() => setActiveSectionTab(1)}
+                          onClick={handleNextClick}
+                          
+                          
                           className="w-full bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 py-3.5 rounded-xl font-bold transition-all shadow-lg shadow-blue-900/20 flex items-center justify-center gap-2 text-sm"
                         >
                           <span>Next</span>
@@ -753,9 +796,15 @@ export default function MonthlyInspectionReport() {
                             <div className="p-3">
                               {comboxImage ? (
                                 <div className="relative group rounded-lg overflow-hidden aspect-square bg-black/20">
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
                                   <img src={comboxImage} alt="Combox" className="w-full h-full object-cover" />
-                                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                    <button type="button" onClick={() => setComboxImage(null)} className="bg-red-500/80 hover:bg-red-500 text-white text-xs px-3 py-1.5 rounded-lg transition-colors font-medium">Remove</button>
+                                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                                    <button type="button" onClick={() => setLightboxImage(comboxImage)} className="w-8 h-8 bg-white/20 hover:bg-white/40 rounded-full flex items-center justify-center transition-colors">
+                                      <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                    </button>
+                                    <button type="button" onClick={() => setComboxImage(null)} className="w-8 h-8 bg-red-500/80 hover:bg-red-500 rounded-full flex items-center justify-center transition-colors">
+                                      <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                    </button>
                                   </div>
                                 </div>
                               ) : (
@@ -779,9 +828,15 @@ export default function MonthlyInspectionReport() {
                             <div className="p-3">
                               {siteInspectionImage ? (
                                 <div className="relative group rounded-lg overflow-hidden aspect-square bg-black/20">
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
                                   <img src={siteInspectionImage} alt="Site" className="w-full h-full object-cover" />
-                                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                    <button type="button" onClick={() => setSiteInspectionImage(null)} className="bg-red-500/80 hover:bg-red-500 text-white text-xs px-3 py-1.5 rounded-lg transition-colors font-medium">Remove</button>
+                                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                                    <button type="button" onClick={() => setLightboxImage(siteInspectionImage)} className="w-8 h-8 bg-white/20 hover:bg-white/40 rounded-full flex items-center justify-center transition-colors">
+                                      <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                    </button>
+                                    <button type="button" onClick={() => setSiteInspectionImage(null)} className="w-8 h-8 bg-red-500/80 hover:bg-red-500 rounded-full flex items-center justify-center transition-colors">
+                                      <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                    </button>
                                   </div>
                                 </div>
                               ) : (
@@ -809,25 +864,40 @@ export default function MonthlyInspectionReport() {
                                 <p className="text-[10px] text-gray-600 mt-0.5">{sublabel}</p>
                               </div>
                               <span className="text-[10px] text-gray-500 bg-white/5 px-2 py-0.5 rounded-full">
-                                {images.length} {images.length === 1 ? 'image' : 'images'}
+                                {images.length} / 4
                               </span>
                             </div>
-                            <div className="p-3">
-                              <div className="flex flex-wrap gap-2">
+                            <div className="p-4">
+                              <div className="grid grid-cols-4 gap-3">
                                 {images.map((img, idx) => (
-                                  <div key={idx} className="relative group w-16 h-16 rounded-lg overflow-hidden bg-black/20 border border-white/10">
+                                  <div key={idx} className="relative group aspect-square rounded-xl overflow-hidden bg-black/20 border border-white/10 hover:border-white/20 transition-all shadow-md">
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
                                     <img src={img} alt={`${label} ${idx}`} className="w-full h-full object-cover" />
-                                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                      <button type="button" onClick={() => removeImage(idx, setter)} className="w-6 h-6 bg-red-500 rounded-full flex items-center justify-center text-white text-xs font-bold hover:bg-red-400 transition-colors">×</button>
+                                    <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                                    <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                                      <button type="button" onClick={() => setLightboxImage(img)} className="w-8 h-8 bg-white/20 hover:bg-white/40 backdrop-blur-sm rounded-full flex items-center justify-center transition-all hover:scale-110">
+                                        <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                      </button>
+                                      <button type="button" onClick={() => removeImage(idx, setter)} className="w-8 h-8 bg-red-500/80 hover:bg-red-500 backdrop-blur-sm rounded-full flex items-center justify-center transition-all hover:scale-110">
+                                        <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                      </button>
+                                    </div>
+                                    <div className="absolute bottom-1.5 right-1.5 bg-black/50 backdrop-blur-sm text-[9px] text-white/60 px-1.5 py-0.5 rounded-md font-medium">
+                                      {idx + 1}
                                     </div>
                                   </div>
                                 ))}
-                                <label className="cursor-pointer w-16 h-16 rounded-lg border-2 border-dashed border-white/10 hover:border-purple-500/40 hover:bg-purple-500/5 flex flex-col items-center justify-center transition-all group">
-                                  <svg className="w-5 h-5 text-gray-600 group-hover:text-purple-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                                  </svg>
-                                  <input type="file" accept="image/*" multiple className="hidden" onChange={onAdd} />
-                                </label>
+                                {images.length < 4 && (
+                                  <label className="cursor-pointer aspect-square rounded-xl border-2 border-dashed border-white/10 hover:border-purple-500/40 hover:bg-purple-500/5 flex flex-col items-center justify-center transition-all group shadow-md">
+                                    <div className="w-8 h-8 rounded-full bg-white/5 group-hover:bg-purple-500/20 flex items-center justify-center transition-all mb-1">
+                                      <svg className="w-4 h-4 text-gray-600 group-hover:text-purple-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                                      </svg>
+                                    </div>
+                                    <span className="text-[10px] text-gray-600 group-hover:text-purple-400 transition-colors font-medium">Add</span>
+                                    <input type="file" accept="image/*" multiple className="hidden" onChange={onAdd} />
+                                  </label>
+                                )}
                               </div>
                             </div>
                           </div>
@@ -902,6 +972,21 @@ export default function MonthlyInspectionReport() {
           )}
         </div>
       </div>
+
+      {/* Lightbox */}
+      {lightboxImage && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setLightboxImage(null)}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={lightboxImage}
+            alt="Preview"
+            className="max-w-full max-h-full object-contain rounded-xl shadow-2xl"
+          />
+        </div>
+      )}
     </main>
   );
 }
