@@ -102,6 +102,42 @@ export default function MonthlyInspectionReport() {
     setter(prev => prev.filter((_, i) => i !== index));
   };
 
+  const [draggingOver, setDraggingOver] = useState(null);
+
+  const readFileAsDataURL = (file) =>
+    new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (e) => resolve(e.target.result);
+      reader.readAsDataURL(file);
+    });
+
+  const handleDrop = async (e, zone, setter, isMultiple = false) => {
+    e.preventDefault();
+    setDraggingOver(null);
+    const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+    if (files.length === 0) return;
+
+    if (!isMultiple) {
+      const dataUrl = await readFileAsDataURL(files[0]);
+      setter(dataUrl);
+    } else {
+      for (const file of files) {
+        const dataUrl = await readFileAsDataURL(file);
+        setter(prev => {
+          if (prev.length >= 4) return prev;
+          return [...prev, dataUrl];
+        });
+      }
+    }
+  };
+
+  const handleDragOver = (e, zone) => {
+    e.preventDefault();
+    setDraggingOver(zone);
+  };
+
+  const handleDragLeave = () => setDraggingOver(null);
+
   const [pdfUrl, setPdfUrl] = useState(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [pdfBlob, setPdfBlob] = useState(null);
@@ -176,7 +212,6 @@ export default function MonthlyInspectionReport() {
       const { siteCode, siteName } = parseSiteInfo(siteInfo?.name);
       const pageWidth = doc.internal.pageSize.getWidth();
       const pageHeight = doc.internal.pageSize.getHeight();
-        
       const drawHeader = () => {
         autoTable(doc, {
           startY: 10,
@@ -549,49 +584,61 @@ export default function MonthlyInspectionReport() {
     }
   };
 
-  // ── Validate speed tests before proceeding to next step ──
+  // ── Navigate AP tabs with validation; go to Attachments after last AP ──
   const handleNextClick = () => {
-    const missing = speedTests
-      .map((test, i) => {
-        if (!test.down && !test.up) return `AP ${i + 1} (Download & Upload)`;
-        if (!test.down) return `AP ${i + 1} (Download)`;
-        if (!test.up) return `AP ${i + 1} (Upload)`;
-        return null;
-      })
-      .filter(Boolean);
+    const currentTest = speedTests[activeSpeedTestTab];
+    const missingDown = !currentTest.down;
+    const missingUp = !currentTest.up;
 
-    if (missing.length > 0) {
-  Swal.fire({
-    icon: 'warning',
-    title: 'Missing Speed Test Data',
-    html: `
-      <p class="text-slate-400 text-sm mb-3">Please fill in the following fields:</p>
-      <ul class="space-y-2">
-        ${missing.map(m => `
-          <li class="flex items-center gap-2 bg-blue-500/10 border border-blue-500/20 rounded-lg px-3 py-2 text-blue-300 text-sm font-medium">
-            <span class="w-1.5 h-1.5 rounded-full bg-blue-400 shrink-0"></span>
-            ${m}
-          </li>
-        `).join('')}
-      </ul>
-    `,
-    confirmButtonText: 'Go Back',
-    background: '#1d2836',
-    color: '#e2e1e1',
-    confirmButtonColor: '#3b82f6',
-    customClass: {
-      popup: '!rounded-2xl !border !border-white/10 !shadow-2xl',
-      title: '!text-white !text-lg !font-semibold',
-      confirmButton: '!rounded-xl !px-6 !font-medium',
-    },
-  });
-  return;
-}
+    if (missingDown || missingUp) {
+      const missing = [];
+      if (missingDown) missing.push('Download');
+      if (missingUp) missing.push('Upload');
 
+      Swal.fire({
+        icon: 'warning',
+        title: `Missing AP ${activeSpeedTestTab + 1} Data`,
+        html: `
+          Please fill in the following:
+          <ul style="text-align: center; margin-top: 8px;">
+            ${missing.map(m => `<li>${m}</li>`).join('')}
+          </ul>
+        `,
+        confirmButtonText: 'Go Back',
+        background: '#1f2b3a',
+        color: '#e2e1e1',
+        confirmButtonColor: '#3b82f6',
+      });
+      return;
+    }
+
+    // If more APs remain, advance to the next one
+    if (activeSpeedTestTab < speedTests.length - 1) {
+      setActiveSpeedTestTab(activeSpeedTestTab + 1);
+      return;
+    }
+
+    // Last AP done — proceed to Attachments
     setActiveSectionTab(1);
   };
 
+  // ── Reset all form fields when a new site is selected ──
+  const handleSiteSelect = (id) => {
+    setSelectedSite(id);
+    setPdfUrl(null);
+    setPdfBlob(null);
 
+    // Reset speed tests
+    setSpeedTests(Array(4).fill(null).map(() => ({ down: '', up: '' })));
+    setActiveSpeedTestTab(0);
+    setActiveSectionTab(0);
+
+    // Reset attachments
+    setComboxImage(null);
+    setAdditionalImages([]);
+    setSpeedtestImages([]);
+    setSiteInspectionImage(null);
+  };
 
   return (
     <main className="p-4 sm:p-8 bg-gradient-to-br from-gray-900 via-gray-800 to-black min-h-screen text-white">
@@ -604,7 +651,7 @@ export default function MonthlyInspectionReport() {
               loading={loadingSites}
               selectedSite={selectedSite}
               searchTerm={siteSearchTerm}
-              onSiteSelect={(id) => { setSelectedSite(id); setPdfUrl(null); }}
+              onSiteSelect={handleSiteSelect}
               onSearchChange={setSiteSearchTerm}
             />
           </div>
@@ -689,6 +736,7 @@ export default function MonthlyInspectionReport() {
                               <span className={`absolute inset-0 pointer-events-none ${tab.accent === 'blue' ? 'bg-gradient-to-b from-blue-600/15 to-transparent' : 'bg-gradient-to-b from-purple-600/15 to-transparent'}`} />
                             )}
                             <span className="relative flex items-center gap-2">
+                              {/* Step icon */}
                               <span className={`
                                 w-6 h-6 rounded-lg flex items-center justify-center shrink-0
                                 ${isActive
@@ -707,6 +755,7 @@ export default function MonthlyInspectionReport() {
                             {isActive && (
                               <span className={`absolute bottom-0 left-1/2 -translate-x-1/2 h-0.5 w-16 rounded-full ${tab.accent === 'blue' ? 'bg-blue-500' : 'bg-purple-500'}`} />
                             )}
+                            {/* Divider between steps */}
                             {i < 1 && (
                               <span className="absolute right-0 top-1/2 -translate-y-1/2 h-4 w-px bg-white/10" />
                             )}
@@ -717,6 +766,7 @@ export default function MonthlyInspectionReport() {
 
                     {/* ── Panel 0: Speed Test Results ── */}
                     <div className={activeSectionTab === 0 ? 'block' : 'hidden'}>
+                      {/* Inner speed-test tabs */}
                       <div className="flex border-b border-white/10 bg-black/20">
                         {speedTests.map((test, index) => {
                           const hasData = test.down || test.up;
@@ -727,7 +777,7 @@ export default function MonthlyInspectionReport() {
                               type="button"
                               onClick={() => setActiveSpeedTestTab(index)}
                               className={`
-                                relative flex-1 py-3 text-xs font-semibold tracking-wider uppercase transition-all duration-200
+                                relative flex-1 py-3 text-xs font-semibold tracking-wider uppercase transition-all duration-200 cursor-pointer
                                 ${isActive ? 'text-white -translate-y-0.3 scale-105' : 'text-gray-500 hover:text-gray-300'}
                               `}
                             >
@@ -735,7 +785,7 @@ export default function MonthlyInspectionReport() {
                                 <span className="absolute inset-0 bg-gradient-to-b from-blue-600/20 to-transparent pointer-events-none" />
                               )}
                               <span className="relative flex flex-col items-center gap-1">
-                                <span>Test {index + 1}</span>
+                                <span>AP {index + 1}</span>
                                 {hasData && (
                                   <span className={`w-1 h-1 rounded-full ${isActive ? 'bg-blue-400' : 'bg-gray-600'}`} />
                                 )}
@@ -752,63 +802,68 @@ export default function MonthlyInspectionReport() {
                         {speedTests.map((test, index) => (
                           <div key={index} className={activeSpeedTestTab === index ? 'block' : 'hidden'}>
                             <div className="grid grid-cols-2 gap-4">
-                              <div className="rounded-xl bg-gradient-to-br from-green-500/10 to-green-400/5 border border-green-500/20 p-4 hover:border-green-500/40 transition-all duration-200">
+                              {/* Download */}
+                              <div className="rounded-xl bg-gradient-to-br from-cyan-500/10 to-cyan-400/5 border border-cyan-500/20 p-4 hover:border-cyan-500/40 transition-all duration-200">
                                 <div className="flex items-center gap-2 mb-3">
-                                  <div className="w-7 h-7 rounded-lg bg-green-500/20 flex items-center justify-center">
-                                    <svg className="w-3.5 h-3.5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <div className="w-7 h-7 rounded-lg bg-cyan-500/20 flex items-center justify-center">
+                                    <svg className="w-3.5 h-3.5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
                                     </svg>
                                   </div>
-                                  <label className="text-xs font-semibold text-green-400 uppercase tracking-wider">Download</label>
+                                  <label className="text-xs font-semibold text-cyan-400 uppercase tracking-wider">Download</label>
                                 </div>
                                 <input
                                   type="text"
                                   placeholder="0.00"
                                   value={test.down}
-                                  onChange={(e) => handleSpeedTestChange(index, 'down', e.target.value)}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                                      handleSpeedTestChange(index, 'down', val);
+                                    }
+                                  }}
                                   className="w-full bg-transparent outline-none text-2xl font-bold text-white placeholder-white/20 text-center transition-all"
                                 />
-                                <p className="text-center text-xs text-green-400/50 mt-1">Mbps</p>
+                                <p className="text-center text-xs text-cyan-400/50 mt-1">Mbps</p>
                               </div>
-                              <div className="rounded-xl bg-gradient-to-br from-blue-500/10 to-blue-400/5 border border-blue-500/20 p-4 hover:border-blue-500/40 transition-all duration-200">
+                              {/* Upload */}
+                              <div className="rounded-xl bg-gradient-to-br from-purple-500/10 to-purple-400/5 border border-purple-500/20 p-4 hover:border-purple-500/40 transition-all duration-200">
                                 <div className="flex items-center gap-2 mb-3">
-                                  <div className="w-7 h-7 rounded-lg bg-blue-500/20 flex items-center justify-center">
-                                    <svg className="w-3.5 h-3.5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <div className="w-7 h-7 rounded-lg bg-purple-500/20 flex items-center justify-center">
+                                    <svg className="w-3.5 h-3.5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 10l7-7m0 0l7 7m-7-7v18" />
                                     </svg>
                                   </div>
-                                  <label className="text-xs font-semibold text-blue-400 uppercase tracking-wider">Upload</label>
+                                  <label className="text-xs font-semibold text-purple-400 uppercase tracking-wider">Upload</label>
                                 </div>
                                 <input
                                   type="text"
                                   placeholder="0.00"
                                   value={test.up}
-                                  onChange={(e) => handleSpeedTestChange(index, 'up', e.target.value)}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                                      handleSpeedTestChange(index, 'up', val);
+                                    }
+                                  }}
                                   className="w-full bg-transparent outline-none text-2xl font-bold text-white placeholder-white/20 text-center transition-all"
                                 />
-                                <p className="text-center text-xs text-blue-400/50 mt-1">Mbps</p>
+                                <p className="text-center text-xs text-purple-400/50 mt-1">Mbps</p>
                               </div>
                             </div>
-                            <div className="mt-4 flex items-center justify-between px-1">
-                              <span className="text-xs text-gray-600 font-medium">Test {index + 1} of {speedTests.length}</span>
-                              <div className="flex gap-4">
-                                {test.down ? <span className="text-xs font-semibold text-green-400">↓ {test.down} Mbps</span> : <span className="text-xs text-gray-700">↓ —</span>}
-                                {test.up ? <span className="text-xs font-semibold text-blue-400">↑ {test.up} Mbps</span> : <span className="text-xs text-gray-700">↑ —</span>}
-                              </div>
-                            </div>
+
                           </div>
                         ))}
                       </div>
 
+                      {/* Next button */}
                       <div className="px-5 pb-5 pt-2">
                         <button
                           type="button"
                           onClick={handleNextClick}
-                          
-                          
                           className="w-full bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 py-3.5 rounded-xl font-bold transition-all shadow-lg shadow-blue-900/20 flex items-center justify-center gap-2 text-sm"
                         >
-                          <span>Next</span>
+                          <span>{activeSpeedTestTab < speedTests.length - 1 ? `Next — AP ${activeSpeedTestTab + 2}` : 'Next — Attachments'}</span>
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                           </svg>
@@ -843,11 +898,21 @@ export default function MonthlyInspectionReport() {
                                   </div>
                                 </div>
                               ) : (
-                                <label className="cursor-pointer flex flex-col items-center justify-center aspect-square rounded-lg border-2 border-dashed border-white/10 hover:border-purple-500/40 hover:bg-purple-500/5 transition-all group">
-                                  <svg className="w-6 h-6 text-gray-600 group-hover:text-purple-400 transition-colors mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <label
+                                  className={`cursor-pointer flex flex-col items-center justify-center aspect-square rounded-lg border-2 border-dashed transition-all group
+                                    ${draggingOver === 'combox'
+                                      ? 'border-purple-400 bg-purple-500/15 scale-[1.02]'
+                                      : 'border-white/10 hover:border-purple-500/40 hover:bg-purple-500/5'}`}
+                                  onDragOver={(e) => handleDragOver(e, 'combox')}
+                                  onDragLeave={handleDragLeave}
+                                  onDrop={(e) => handleDrop(e, 'combox', setComboxImage, false)}
+                                >
+                                  <svg className={`w-6 h-6 mb-1 transition-colors ${draggingOver === 'combox' ? 'text-purple-400' : 'text-gray-600 group-hover:text-purple-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                                   </svg>
-                                  <span className="text-[10px] text-gray-600 group-hover:text-purple-400 transition-colors">Upload</span>
+                                  <span className={`text-[10px] transition-colors ${draggingOver === 'combox' ? 'text-purple-400' : 'text-gray-600 group-hover:text-purple-400'}`}>
+                                    {draggingOver === 'combox' ? 'Drop here' : 'Upload or drag'}
+                                  </span>
                                   <input type="file" accept="image/*" className="hidden" onChange={(e) => handleImageUpload(e, setComboxImage)} />
                                 </label>
                               )}
@@ -875,11 +940,21 @@ export default function MonthlyInspectionReport() {
                                   </div>
                                 </div>
                               ) : (
-                                <label className="cursor-pointer flex flex-col items-center justify-center aspect-square rounded-lg border-2 border-dashed border-white/10 hover:border-purple-500/40 hover:bg-purple-500/5 transition-all group">
-                                  <svg className="w-6 h-6 text-gray-600 group-hover:text-purple-400 transition-colors mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <label
+                                  className={`cursor-pointer flex flex-col items-center justify-center aspect-square rounded-lg border-2 border-dashed transition-all group
+                                    ${draggingOver === 'site'
+                                      ? 'border-purple-400 bg-purple-500/15 scale-[1.02]'
+                                      : 'border-white/10 hover:border-purple-500/40 hover:bg-purple-500/5'}`}
+                                  onDragOver={(e) => handleDragOver(e, 'site')}
+                                  onDragLeave={handleDragLeave}
+                                  onDrop={(e) => handleDrop(e, 'site', setSiteInspectionImage, false)}
+                                >
+                                  <svg className={`w-6 h-6 mb-1 transition-colors ${draggingOver === 'site' ? 'text-purple-400' : 'text-gray-600 group-hover:text-purple-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                                   </svg>
-                                  <span className="text-[10px] text-gray-600 group-hover:text-purple-400 transition-colors">Upload</span>
+                                  <span className={`text-[10px] transition-colors ${draggingOver === 'site' ? 'text-purple-400' : 'text-gray-600 group-hover:text-purple-400'}`}>
+                                    {draggingOver === 'site' ? 'Drop here' : 'Upload or drag'}
+                                  </span>
                                   <input type="file" accept="image/*" className="hidden" onChange={(e) => handleImageUpload(e, setSiteInspectionImage)} />
                                 </label>
                               )}
@@ -889,9 +964,9 @@ export default function MonthlyInspectionReport() {
 
                         {/* Multi-image rows */}
                         {[
-                          { label: 'Equipment Photos', sublabel: 'Access points, cables, hardware', images: additionalImages, setter: setAdditionalImages, onAdd: (e) => handleImageUpload(e, setAdditionalImages, true) },
-                          { label: 'Speedtest Results', sublabel: 'Bandwidth test screenshots', images: speedtestImages, setter: setSpeedtestImages, onAdd: (e) => handleImageUpload(e, setSpeedtestImages, true) },
-                        ].map(({ label, sublabel, images, setter, onAdd }) => (
+                          { label: 'Equipment Photos', sublabel: 'Access points, cables, hardware', zone: 'equipment', images: additionalImages, setter: setAdditionalImages, onAdd: (e) => handleImageUpload(e, setAdditionalImages, true) },
+                          { label: 'Speedtest Results', sublabel: 'Bandwidth test screenshots', zone: 'speedtest', images: speedtestImages, setter: setSpeedtestImages, onAdd: (e) => handleImageUpload(e, setSpeedtestImages, true) },
+                        ].map(({ label, sublabel, zone, images, setter, onAdd }) => (
                           <div key={label} className="rounded-xl border border-white/10 bg-white/5 overflow-hidden">
                             <div className="px-4 py-2.5 border-b border-white/10 flex items-center justify-between">
                               <div>
@@ -902,7 +977,12 @@ export default function MonthlyInspectionReport() {
                                 {images.length} / 4
                               </span>
                             </div>
-                            <div className="p-4">
+                            <div
+                              className={`p-4 transition-colors duration-150 ${draggingOver === zone ? 'bg-purple-500/10' : ''}`}
+                              onDragOver={(e) => images.length < 4 ? handleDragOver(e, zone) : e.preventDefault()}
+                              onDragLeave={handleDragLeave}
+                              onDrop={(e) => handleDrop(e, zone, setter, true)}
+                            >
                               <div className="grid grid-cols-4 gap-3">
                                 {images.map((img, idx) => (
                                   <div key={idx} className="relative group aspect-square rounded-xl overflow-hidden bg-black/20 border border-white/10 hover:border-white/20 transition-all shadow-md">
@@ -922,14 +1002,23 @@ export default function MonthlyInspectionReport() {
                                     </div>
                                   </div>
                                 ))}
+                                {/* Add button — hidden once 4 images are uploaded */}
                                 {images.length < 4 && (
-                                  <label className="cursor-pointer aspect-square rounded-xl border-2 border-dashed border-white/10 hover:border-purple-500/40 hover:bg-purple-500/5 flex flex-col items-center justify-center transition-all group shadow-md">
-                                    <div className="w-8 h-8 rounded-full bg-white/5 group-hover:bg-purple-500/20 flex items-center justify-center transition-all mb-1">
-                                      <svg className="w-4 h-4 text-gray-600 group-hover:text-purple-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <label
+                                    className={`cursor-pointer aspect-square rounded-xl border-2 border-dashed flex flex-col items-center justify-center transition-all group shadow-md
+                                      ${draggingOver === zone
+                                        ? 'border-purple-400 bg-purple-500/20 scale-[1.03]'
+                                        : 'border-white/10 hover:border-purple-500/40 hover:bg-purple-500/5'}`}
+                                  >
+                                    <div className={`w-8 h-8 rounded-full flex items-center justify-center transition-all mb-1
+                                      ${draggingOver === zone ? 'bg-purple-500/30' : 'bg-white/5 group-hover:bg-purple-500/20'}`}>
+                                      <svg className={`w-4 h-4 transition-colors ${draggingOver === zone ? 'text-purple-300' : 'text-gray-600 group-hover:text-purple-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                                       </svg>
                                     </div>
-                                    <span className="text-[10px] text-gray-600 group-hover:text-purple-400 transition-colors font-medium">Add</span>
+                                    <span className={`text-[10px] transition-colors font-medium ${draggingOver === zone ? 'text-purple-300' : 'text-gray-600 group-hover:text-purple-400'}`}>
+                                      {draggingOver === zone ? 'Drop here' : 'Add'}
+                                    </span>
                                     <input type="file" accept="image/*" multiple className="hidden" onChange={onAdd} />
                                   </label>
                                 )}
@@ -938,7 +1027,6 @@ export default function MonthlyInspectionReport() {
                           </div>
                         ))}
                       </div>
-
                       {/* Generate button */}
                       <div className="pt-2">
                         <button
@@ -954,7 +1042,7 @@ export default function MonthlyInspectionReport() {
                           ) : (
                             <>
                               <span>Generate Monthly Report</span>
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                               </svg>
                             </>
@@ -1007,8 +1095,6 @@ export default function MonthlyInspectionReport() {
           )}
         </div>
       </div>
-
-      {/* Lightbox */}
       {lightboxImage && (
         <div
           className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
