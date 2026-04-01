@@ -5,7 +5,7 @@ import Swal from 'sweetalert2';
 import withReactContent from 'sweetalert2-react-content';
 import { motion } from 'framer-motion';
 import Link from 'next/link';
-import { Menu, X, Home, User, HouseWifi, Router, Logs, FilePlus2, LogOut, Flag } from 'lucide-react'; 
+import { Menu, X, Home, User, HouseWifi, Router, Logs, FilePlus2, LogOut, Flag, BookImage } from 'lucide-react'; 
 import { useAuth } from '@/hooks/useAuth';
 import { usePathname, useRouter } from 'next/navigation';
 
@@ -20,6 +20,7 @@ const links = [
   { name: 'Manual Data', href: '/manual-data', icon: <FilePlus2 size={18} />, role: 'developer' },
   { name: 'Events', href: '/events', icon: <Logs size={18} />, role: 'developer' },
   { name: 'MIR', href: '/mir', icon: <Flag size={18} />, role: 'developer' },
+  { name: 'Images', href: '/img', icon: <BookImage size={18} />, role: 'developer' },
 ];
 
 // Text Type Animation Component

@@ -27,6 +27,17 @@ export const getBase64FromImageUrl = (url) => {
   });
 };
 
+const base64ToBlob = (base64, type = "application/pdf") => {
+  const parts = base64.split(",");
+  const byteCharacters = atob(parts[1] || parts[0]);
+  const byteNumbers = new Array(byteCharacters.length);
+  for (let i = 0; i < byteCharacters.length; i++) {
+    byteNumbers[i] = byteCharacters.charCodeAt(i);
+  }
+  const byteArray = new Uint8Array(byteNumbers);
+  return new Blob([byteArray], { type });
+};
+
 const parseSiteInfo = (fullSiteName) => {
   if (!fullSiteName) return { siteCode: '', siteName: fullSiteName };
 
@@ -37,7 +48,6 @@ const parseSiteInfo = (fullSiteName) => {
     const potentialCode = trimmedName.substring(0, firstSpaceIndex);
     const potentialName = trimmedName.substring(firstSpaceIndex + 1);
 
-    // Check if the first part matches the PICS code format
     const isSiteCode = /^PICS-[A-Z0-9-]+$/i.test(potentialCode);
 
     if (isSiteCode) {
@@ -48,9 +58,56 @@ const parseSiteInfo = (fullSiteName) => {
     }
   }
 
-  // Fallback if no code is found
   return { siteCode: '', siteName: trimmedName };
 };
+//for completing abbrevations
+const expandSiteType = (siteName) => {
+  if (!siteName) return siteName;
+  
+  siteName = siteName.replace(/_/g, ' '); // for underscores in site names
+
+  const abbreviations = {
+    'ES': 'Elementary School',
+    'NHS': 'National High School',
+    'CC': 'Covered Court',
+    'MP': 'Municipal Plaza',
+    'MH': 'Municipal Hall',
+    'IS': 'Integrated School',
+    'CS': 'Central School' // added CS abbreviation for Central School
+  };
+  const separators = ['', '-', ' ', '.'];
+  let expandedName = siteName;
+  for (const [abbr, fullName] of Object.entries(abbreviations)) {
+    const index = siteName.toLowerCase().indexOf(abbr.toLowerCase());
+    if (index !== -1) {
+      const afterAbbr = siteName.slice(index + abbr.length);
+      const isAtEnd = afterAbbr === '' || separators.some(sep => afterAbbr.startsWith(sep));
+      if (isAtEnd) {
+        expandedName = siteName.slice(0, index) + fullName + siteName.slice(index + abbr.length);
+        break;
+      }
+    }
+  }
+  return expandedName;
+};
+
+
+
+// ── Signatory options  ── // dropdowns that lets you select from predefined signatories instead of hardcoding them in the PDF generation logic. Each option includes the person's name and their associated lines (roles/titles) that will be printed under their name in the PDF.
+const PREPARED_BY_OPTIONS = [
+  { name: 'Engr. Jason Ilde Y. Aguihon', lines: ['Project Engineer'] },
+  { name: 'Engr. Eduardo Dela Cruz', lines: ['Project Engineer'] },
+]; 
+
+const CHECKED_BY_OPTIONS = [
+  { name: 'Engr. Cindy D. Camarines', lines: ['Engineer II, FPIAP', 'DICT Regional Office VIII'] },
+  { name: 'Engr. Gualberto R. Gualberto Jr.', lines: ['DICT Provincial Officer', '3rd, 4th, & 5th District'] },
+];
+
+const NOTED_BY_OPTIONS = [
+  { name: 'Ms. Claire P. Fernandez', lines: ['Provincial Officer', 'DICT Leyte'] },
+  { name: 'Engr. Edberto C. Versoza', lines: ['Provincial Officer', 'DICT Northern Samar'] },
+];
 
 export default function MonthlyInspectionReport() {
   const [sites, setSites] = useState([]);
@@ -58,42 +115,38 @@ export default function MonthlyInspectionReport() {
   const [siteSearchTerm, setSiteSearchTerm] = useState("");
   const [loadingSites, setLoadingSites] = useState(true);
 
+  const [siteGallery, setSiteGallery] = useState([]);
+  const [savedReports, setSavedReports] = useState([]);
+  const [isLoadingGallery, setIsLoadingGallery] = useState(false);
+
   const [reportTitle, setReportTitle] = useState("Monthly Network Inspection");
   const [reportDate, setReportDate] = useState(dayjs().format('YYYY-MM-DD'));
   const [technicianName, setTechnicianName] = useState("FREQ IT SOLUTIONS");
   const [contractedBandwidth, setContractedBandwidth] = useState("200");
   const [speedTests, setSpeedTests] = useState(
-    Array(5).fill({ down: '', up: '' })
+    Array(4).fill(null).map(() => ({ down: '', up: '' }))
   );
+  const [activeSpeedTestTab, setActiveSpeedTestTab] = useState(0);
+  const [activeSectionTab, setActiveSectionTab] = useState(0);
+
+  // Gallery Modal States
+  const [showGalleryModal, setShowGalleryModal] = useState(false);
+  const [assigningTarget, setAssigningTarget] = useState(null); // { type: string, label: string }
+
+  // ── Signatory state ──
+  const [preparedBy, setPreparedBy] = useState(PREPARED_BY_OPTIONS[0]);
+  const [checkedBy, setCheckedBy] = useState(CHECKED_BY_OPTIONS[0]);
+  const [notedBy, setNotedBy] = useState(NOTED_BY_OPTIONS[0]);
 
   const handleSpeedTestChange = (index, type, value) => {
     const newSpeedTests = speedTests.map((test, i) => i === index ? { ...test, [type]: value } : test);
     setSpeedTests(newSpeedTests);
   };
-  
+
   const [comboxImage, setComboxImage] = useState(null);
   const [additionalImages, setAdditionalImages] = useState([]);
   const [speedtestImages, setSpeedtestImages] = useState([]);
   const [siteInspectionImage, setSiteInspectionImage] = useState(null);
-
-  const handleImageUpload = (e, setter, isMultiple = false) => {
-    const files = Array.from(e.target.files);
-    if (files.length === 0) return;
-
-    files.forEach(file => {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        if (isMultiple) {
-          setter(prev => [...prev, event.target.result]);
-        } else {
-          setter(event.target.result);
-        }
-      };
-      reader.readAsDataURL(file);
-    });
-    // Reset input
-    e.target.value = '';
-  };
 
   const removeImage = (index, setter) => {
     setter(prev => prev.filter((_, i) => i !== index));
@@ -103,6 +156,7 @@ export default function MonthlyInspectionReport() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [pdfBlob, setPdfBlob] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [lightboxImage, setLightboxImage] = useState(null);
 
   const [logoDataUrl, setLogoDataUrl] = useState(null);
   const [logoDataUrl2, setLogoDataUrl2] = useState(null);
@@ -133,11 +187,11 @@ export default function MonthlyInspectionReport() {
     async function fetchSites() {
       try {
         setLoadingSites(true);
-        const token = await getToken(); 
+        const token = await getToken();
         if (!token) return;
 
         const res = await fetch("/api/sites", {
-          headers: { 
+          headers: {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json'
           },
@@ -161,29 +215,86 @@ export default function MonthlyInspectionReport() {
     fetchSites();
   }, [getToken]);
 
+  const fetchHistory = async () => {
+    if (!selectedSite) return;
+    try {
+      const token = await getToken();
+      const res = await fetch(`/api/reports/monthly?siteId=${selectedSite}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      setSavedReports(data.data || []);
+    } catch (err) { console.error(err); }
+  };
+
+  const fetchGallery = async () => {
+    if (!selectedSite) {
+      setSiteGallery([]);
+      return;
+    }
+    setIsLoadingGallery(true);
+    try {
+      const token = await getToken();
+      const res = await fetch(`/api/sites/images?siteId=${selectedSite}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      setSiteGallery(data.data || []);
+    } catch (err) { console.error(err); }
+    finally { setIsLoadingGallery(false); }
+  };
+
+  useEffect(() => {
+    fetchGallery();
+    fetchHistory();
+  }, [selectedSite, getToken]);
+
+  const loadPreviousReport = async (reportId) => {
+    if (!reportId) return;
+    try {
+      const token = await getToken();
+      // Fetch the saved report to view the PDF, excluding the unused config
+      const res = await fetch(`/api/reports/monthly?id=${reportId}&excludeConfig=true`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const result = await res.json();
+      if (result.success) {
+        // Set the PDF URL directly from the saved data to show the preview immediately
+        if (result.data.pdf_data) {
+          const blob = base64ToBlob(result.data.pdf_data);
+          const url = URL.createObjectURL(blob);
+          setPdfBlob(blob); // Restore blob so the "Save" logic doesn't break
+          if (pdfUrl) URL.revokeObjectURL(pdfUrl); // Cleanup old URL
+          setPdfUrl(url);
+        }
+        // Sync form date with the report's metadata, but ignore the rest of the config
+        setReportDate(dayjs(result.data.report_date).format('YYYY-MM-DD'));
+        Swal.fire('Loaded', 'Saved report preview restored.', 'success');
+      }
+    } catch (err) {
+      console.error(err);
+      Swal.fire('Error', 'Failed to load report data.', 'error');
+    }
+  };
+
   const handleGeneratePDF = (e) => {
     e.preventDefault();
     if (!selectedSite) return alert("Please select a site first");
-    
+
     setIsGenerating(true);
 
     try {
       const doc = new jsPDF('p', 'mm', 'a4');
       const siteInfo = sites.find(s => s.siteId === selectedSite);
       const { siteCode, siteName } = parseSiteInfo(siteInfo?.name);
+      const expandedSiteName = expandSiteType(siteName);
       const pageWidth = doc.internal.pageSize.getWidth();
       const pageHeight = doc.internal.pageSize.getHeight();
 
       const drawHeader = () => {
         autoTable(doc, {
           startY: 10,
-          body: [
-            [
-              '',
-              '',
-              '',
-            ]
-          ],
+          body: [['', '', '']],
           styles: {
             minCellHeight: pageHeight * 0.1,
             valign: 'middle',
@@ -193,9 +304,9 @@ export default function MonthlyInspectionReport() {
             lineColor: [0, 0, 0]
           },
           columnStyles: {
-            0: { cellWidth: pageWidth * 0.2 - 3},
+            0: { cellWidth: pageWidth * 0.2 - 3 },
             1: { cellWidth: pageWidth * 0.5 - 1, fontSize: 12, fontStyle: 'bold' },
-            2: { cellWidth: pageWidth * 0.2 - 3},
+            2: { cellWidth: pageWidth * 0.2 - 3 },
           },
           theme: 'grid',
           didDrawCell: (data) => {
@@ -206,21 +317,23 @@ export default function MonthlyInspectionReport() {
                 const y = data.cell.y + (data.cell.height - imgSize) / 2;
                 doc.addImage(logoDataUrl, 'PNG', x - 6, y, imgSize + 13, imgSize);
               }
-              if (data.column.index === 1) {
-                const cell = data.cell;
-                const centerX = cell.x + cell.width / 2;
-                const centerY = cell.y + cell.height / 2;
-                
-                doc.setFont('times', 'bold');
-                doc.setFontSize(16);
-                doc.text('MONTHLY INSPECTION REPORT', centerX, centerY - 4, { align: 'center' });
-  
-                doc.setFont('times', 'normal');
-                doc.setFontSize(9);
-                const text = 'PROVISION OF INTERNET CONNECTIVITY SERVICE (PICS)\nIN PUBLIC PLACES - PHASE 2';
-                const splitText = doc.splitTextToSize(text, cell.width - 2);
-                doc.text(splitText, centerX, centerY + 2, { align: 'center' });
-              }
+              if (data.column.index === 1) { //Header section with title and subtitle
+              const cell = data.cell;
+              const centerX = cell.x + cell.width / 2;
+              const centerY = cell.y + cell.height / 2;
+
+              doc.setTextColor(0, 0, 0); //  pure black
+              doc.setFont('Palatino', 'bold'); //  Palatino
+              doc.setFontSize(16);
+              doc.text('MONTHLY INSPECTION REPORT', centerX, centerY - 4, { align: 'center' });
+
+               doc.setTextColor(0, 0, 0); //  pure black
+               doc.setFont('Palatino', 'normal'); //  Palatino
+               doc.setFontSize(12);
+               const text = 'Provision Of Internet Connectivity Service (PICS)\nIn Public Places - Phase 2';
+               const splitText = doc.splitTextToSize(text, cell.width - 2);
+               doc.text(splitText, centerX, centerY + 2, { align: 'center' });
+                }
               if (data.column.index === 2 && logoDataUrl2) {
                 const imgSize = 20;
                 const x = data.cell.x + (data.cell.width - imgSize) / 2;
@@ -232,217 +345,250 @@ export default function MonthlyInspectionReport() {
         });
       };
 
+      // ── Updated drawFooter using selected signatories ──
       const drawFooter = () => {
-        const footerY = pageHeight - 55;
-        doc.setFontSize(10);
-        doc.setFont('times', 'italic');
-        doc.text("Notes: Photos should have Geotagging (coordinates, date and time stamp)", 15, footerY);
-        
-        doc.setFont('times', 'bold');
-        doc.text("Prepared by: Engr. Jason Ilde Y. Aguihon", 15, footerY + 10);
-        doc.setFont('times', 'normal');
-        doc.text("Project Engineer", 15, footerY + 15);
+  const footerY = pageHeight - 55;
+  doc.setFontSize(10);
+  doc.setFont('Palatino', 'italic');
+  doc.text("Notes: Photos should have Geotagging (coordinates, date and time stamp)", 15, footerY);
 
-        const rightColX = pageWidth / 2 + 10;
-        doc.setFont('times', 'bold');
-        doc.text("Checked by: Engr. Cindy D. Camarines", rightColX, footerY + 10);
-        doc.setFont('times', 'normal');
-        doc.text("Engineer II, FPIAP", rightColX, footerY + 15);
-        doc.text("DICT Regional Office VIII", rightColX, footerY + 20);
+  const drawSignatory = (label, person, x, y, fixedLabelWidth = null) => {
+    doc.setFont('Palatino', 'normal');
+    const labelW = doc.getTextWidth(label);
 
-        doc.setFont('times', 'bold');
-        doc.text("Noted by: Ms. CLAIRE P. FERNANDEZ", rightColX, footerY + 30);
-        doc.setFont('times', 'normal');
-        doc.text("Provincial Officer", rightColX, footerY + 35);
-        doc.text("DICT Leyte", rightColX, footerY + 40);
-      };
+    // If fixedLabelWidth is provided, right-align the label
+    const actualLabelWidth = fixedLabelWidth ?? labelW;
+    doc.text(label, x + (actualLabelWidth - labelW), y);
 
-      const addImageToPage = (imgData, x, y, maxWidth, maxHeight) => {
-        if (imgData) {
-          try {
-            const props = doc.getImageProperties(imgData);
-            const ratio = props.width / props.height;
-            let w = maxWidth;
-            let h = w / ratio;
-            if (h > maxHeight) {
-              h = maxHeight;
-              w = h * ratio;
-            }
-            
-            const newX = x + (maxWidth - w) / 2;
-            const newY = y + (maxHeight - h) / 2;
+    // Name (bold)
+    doc.setFont('Palatino', 'bold');
+    doc.text(person.name, x + actualLabelWidth, y);
 
-            doc.addImage(imgData, 'JPEG', newX, newY, w, h);
-          } catch (error) {
-            console.warn("Error adding image to PDF", error);
-            doc.text("[Image Error]", x + maxWidth / 2, y + maxHeight / 2, { align: 'center' });
-          }
-        }
-      };
+    // Underline under name only
+    const nameWidth = doc.getTextWidth(person.name);
+    doc.setLineWidth(0.3);
+    doc.line(x + actualLabelWidth, y + 1, x + actualLabelWidth + nameWidth, y + 1);
+
+    // Roles centered under name
+    const nameCenterX = x + actualLabelWidth + nameWidth / 2;
+    doc.setFont('Palatino', 'normal');
+    person.lines.forEach((line, i) => {
+      const lineWidth = doc.getTextWidth(line);
+      doc.text(line, nameCenterX - lineWidth / 2, y + 5.5 + (i * 5));
+    });
+  };
+
+  const leftX = 15;
+  const rightX = pageWidth / 2 + 10;
+  const fixedWidth = 22; //  adjust to align colons of Checked by and Noted by
+
+  drawSignatory("Prepared by: ", preparedBy, leftX, footerY + 12); // no fixed width
+  drawSignatory("Checked by: ", checkedBy, rightX, footerY + 12, fixedWidth); // aligned
+  drawSignatory("Noted by: ", notedBy, rightX, footerY + 30, fixedWidth);     // aligned
+}; // ── Updated drawFooter using selected signatories ──
+ 
+    //adding image with aspect ration
+     const addImageToPage = (imgData, x, y, maxWidth, maxHeight) => {
+  if (imgData) {
+    try {
+      doc.addImage(imgData, 'JPEG', x, y, maxWidth, maxHeight);
+    } catch (error) {
+      console.warn("Error adding image to PDF", error);
+      doc.text("[Image Error]", x + maxWidth / 2, y + maxHeight / 2, { align: 'center' });
+    }
+  }
+};
 
       const drawImageGrid = (images, startY, containerHeight) => {
-        const gap = 5;
-        const availableWidth = pageWidth - 30 - 4; // 30 for page margins, 4 for inner padding
-        const availableHeight = containerHeight - 4; // 4 for inner padding
-        
+        const gap = 10;
+        const padding = 8;
+        const availableWidth = pageWidth - 30 - padding * 2;
+        const availableHeight = containerHeight - padding * 2;
+
         if (images.length === 5) {
-          // 5 images layout: 2 top, 3 bottom
           const rowHeight = (availableHeight - gap) / 2;
-          
-          // Top row (2 images)
-          const topRowY = startY + 2;
+
+          const topRowY = startY + padding;
           const topRowWidth = (availableWidth - gap) / 2;
-          
-          addImageToPage(images[0], 15 + 2, topRowY, topRowWidth, rowHeight);
-          addImageToPage(images[1], 15 + 2 + topRowWidth + gap, topRowY, topRowWidth, rowHeight);
-          
-          // Bottom row (3 images)
-          const bottomRowY = startY + 2 + rowHeight + gap;
+
+          addImageToPage(images[0]?.url, 15 + padding, topRowY, topRowWidth, rowHeight);
+          addImageToPage(images[1]?.url, 15 + padding + topRowWidth + gap, topRowY, topRowWidth, rowHeight);
+
+          const bottomRowY = startY + padding + rowHeight + gap;
           const bottomRowWidth = (availableWidth - 2 * gap) / 3;
-          
-          addImageToPage(images[2], 15 + 2, bottomRowY, bottomRowWidth, rowHeight);
-          addImageToPage(images[3], 15 + 2 + bottomRowWidth + gap, bottomRowY, bottomRowWidth, rowHeight);
-          addImageToPage(images[4], 15 + 2 + 2 * (bottomRowWidth + gap), bottomRowY, bottomRowWidth, rowHeight);
+
+          addImageToPage(images[2]?.url, 15 + padding, bottomRowY, bottomRowWidth, rowHeight);
+          addImageToPage(images[3]?.url, 15 + padding + bottomRowWidth + gap, bottomRowY, bottomRowWidth, rowHeight);
+          addImageToPage(images[4]?.url, 15 + padding + 2 * (bottomRowWidth + gap), bottomRowY, bottomRowWidth, rowHeight);
+
         } else {
           const cols = 2;
-          const rows = 3;
-          const cellWidth = (availableWidth - (gap * (cols - 1))) / cols;
-          const cellHeight = (availableHeight - (gap * (rows - 1))) / rows;
-          
+          const rows = images.length <= 2 ? 1 : images.length <= 4 ? 2 : 3;
+          const cellWidth = (availableWidth - gap * (cols - 1)) / cols;
+          const cellHeight = (availableHeight - gap * (rows - 1)) / rows;
+
           images.forEach((img, index) => {
-            if (index >= cols * rows) return; // Limit to fit on page
+            if (index >= cols * rows) return;
             const col = index % cols;
             const row = Math.floor(index / cols);
-            const x = 15 + 2 + col * (cellWidth + gap);
-            const y = startY + 2 + row * (cellHeight + gap);
-            addImageToPage(img, x, y, cellWidth, cellHeight);
+            const x = 15 + padding + col * (cellWidth + gap);
+            const y = startY + padding + row * (cellHeight + gap);
+            addImageToPage(img?.url, x, y, cellWidth, cellHeight);
           });
         }
       };
 
-      // 1. TOP HEADER & PAGE 1 INFO
-      drawHeader();
-      doc.setFontSize(12);
-      doc.setFont('times', 'bold');
-      doc.text(`Provider Name: FREQ IT SOLUTIONS`, 15, doc.lastAutoTable.finalY + 10);
-      doc.text(`Date Prepared: ${dayjs(reportDate).format('MMMM D, YYYY')}`, pageWidth - 15, doc.lastAutoTable.finalY + 10, { align: 'right' });
-
-      // 2. MAIN DATA TABLE (Replicating your .docx table structure) 
-      autoTable(doc, {
-        startY: doc.lastAutoTable.finalY + 20,
-        head: [[
-          'Item\nNo.', 
-          'Location Code', 
-          'Location Name', 
-          'Downlink\nBandwidth\nMbps)', 
-          'Uplink\nBandwidth\n(Mbps)', 
-          'Contracted\nBandwidth\n(Mbps)', 
-          'Remarks'
-        ]],
-        body: [
-          [
-            { content: '1', rowSpan: 5, styles: { valign: 'middle', halign: 'center', textColor: [0, 0, 0] } },
-            { content: siteCode || 'N/A', rowSpan: 5, styles: { valign: 'middle', halign: 'center', textColor: [0, 0, 0]} },
-            { content: siteName || 'N/A', rowSpan: 5, styles: { valign: 'middle', halign: 'left' } },
-            speedTests[0].down,
-            speedTests[0].up,
-            { content: `${contractedBandwidth} Mbps`, rowSpan: 5, styles: { valign: 'middle', halign: 'center', textColor: [0, 0, 0] } },
-            { content: '', rowSpan: 5, styles: { valign: 'middle', halign: 'center', textColor: [0, 0, 0] } }
-          ],
-          [speedTests[1].down, speedTests[1].up],
-          [speedTests[2].down, speedTests[2].up],
-          [speedTests[3].down, speedTests[3].up],
-          [speedTests[4].down, speedTests[4].up],
-        ],
-        theme: 'grid',
-        headStyles: { 
-          fillColor: [135, 206, 235], 
-          textColor: [0, 0, 0], 
-          fontStyle: 'bold', 
-          halign: 'center',
-          valign: 'middle',
-          lineWidth: 0.1,
-          lineColor: [0, 0, 0]
-        },
-        bodyStyles: { 
-          textColor: [0, 0, 0], 
-          halign: 'center',
-          valign: 'middle',
-          lineWidth: 0.1,
-          lineColor: [0, 0, 0]
-        },
-        styles: { 
-          fontSize: 8, 
-          halign: 'center',
-          lineWidth: 0.1,
-          lineColor: [0, 0, 0]
-        },
-        columnStyles: {
-          2: { halign: 'left', cellWidth: 40 },
-          6: { cellWidth: 25 }
-        }
-      });
-
-      // Footer
-      drawFooter();
-
-      // 3. ATTACHMENT 1: EQUIPMENT PHOTOS (Combox)
-      doc.addPage();
-      drawHeader();
-      drawFooter();
-      let currentY = 50;
-      doc.setFontSize(11);
-      doc.setFont('times', 'bold');
-      doc.text("ATTACHMENT 1: EQUIPMENT PHOTOS", pageWidth / 2, currentY, { align: 'center' });
-      currentY += 5;
       
-      // Section Border
-      const sectionHeight = 130;
-      doc.setDrawColor(0);
-      doc.setLineWidth(0.1);
-      doc.rect(15, currentY, pageWidth - 30, sectionHeight);
-      
-      // Combox Image (Single)
-      if (comboxImage) {
-        addImageToPage(comboxImage, 15 + 1, currentY + 1, pageWidth - 32, sectionHeight - 2);
-      } else {
-        doc.setFont('times', 'italic');
-        doc.text("[No Communication Box Image Uploaded]", pageWidth / 2, currentY + sectionHeight / 2, { align: 'center' });
-      }
+      const draw2x2Grid = (images, startY, gridHeight, margin = 12.7) => {
+        const innerPadding = 9; //  space from border edges
+        const gapX = 9;         //  horizontal gap between images
+        const gapY = 9;         //  vertical gap between images
 
-      // 4. ATTACHMENT 1: ADDITIONAL PHOTOS (Next Page)
-      if (additionalImages.length > 0) {
+        const totalWidth = pageWidth - margin * 2 - innerPadding * 2;
+        const totalHeight = gridHeight - innerPadding * 2;
+
+        const cellWidth = (totalWidth - gapX) / 2;
+        const cellHeight = (totalHeight - gapY) / 2;
+
+        const positions = [
+          { col: 0, row: 0 },
+          { col: 1, row: 0 },
+          { col: 0, row: 1 },
+          { col: 1, row: 1 },
+        ];
+
+        images.slice(0, 4).forEach((img, index) => {
+          const { col, row } = positions[index];
+          const x = margin + innerPadding + col * (cellWidth + gapX);
+          const y = startY + innerPadding + row * (cellHeight + gapY);
+          addImageToPage(img?.url, x, y, cellWidth, cellHeight);
+        });
+      };
+
+            // 1. TOP HEADER & PAGE 1 INFO
+            drawHeader();
+            doc.setFontSize(12);
+            doc.setFont('Palatino', 'bold'); // Updated to Palatino Bold
+            doc.text(`Provider Name: FREQ IT SOLUTIONS`, 15, doc.lastAutoTable.finalY + 10);
+            doc.text(`Date Prepared: ${dayjs(reportDate).format('MMMM D, YYYY')}`, pageWidth - 15, doc.lastAutoTable.finalY + 10, { align: 'right' });
+
+            // 2. MAIN DATA TABLE
+            autoTable(doc, {
+              startY: doc.lastAutoTable.finalY + 15,
+              head: [[
+                'Item\nNo.',
+                'Location Code',
+                'Location Name',
+                'Downlink\nBandwidth\nMbps)',
+                'Uplink\nBandwidth\n(Mbps)',
+                'Contracted\nBandwidth\n(Mbps)',
+                'Remarks'
+              ]],
+              body: [
+                [
+                  { content: '1', rowSpan: 4, styles: { valign: 'middle', halign: 'center', textColor: [0, 0, 0] } },
+                  { content: siteCode || 'N/A', rowSpan: 4, styles: { valign: 'middle', halign: 'center', textColor: [0, 0, 0] } },
+                { content: expandedSiteName?.toUpperCase() || 'N/A', rowSpan: 4, styles: { valign: 'middle', halign: 'center' } },//updated to call the expanded names
+                  speedTests[0].down,
+                  speedTests[0].up,
+                  { content: `${contractedBandwidth} Mbps`, rowSpan: 4, styles: { valign: 'middle', halign: 'center', textColor: [0, 0, 0] } },
+                  { content: '', rowSpan: 4, styles: { valign: 'middle', halign: 'center', textColor: [0, 0, 0] } }
+                ],
+                [speedTests[1].down, speedTests[1].up],
+                [speedTests[2].down, speedTests[2].up],
+                [speedTests[3].down, speedTests[3].up],
+              ],
+              theme: 'grid',
+              //header and body styles
+              headStyles: {
+              fillColor: [182, 210, 232],
+              textColor: [0, 0, 0],
+              fontStyle: 'bold',
+              font: 'Palatino', // 
+              halign: 'center',
+              valign: 'middle',
+              lineWidth: 0.1,
+              lineColor: [0, 0, 0],
+              fontSize: 11,  
+              },
+              bodyStyles: {
+              textColor: [0, 0, 0],
+              halign: 'center',
+              valign: 'middle',
+              font: 'Palatino', // 
+              fontStyle: 'bold',
+                fontSize: 11,
+              lineWidth: 0.1,
+              lineColor: [0, 0, 0]
+              },
+              styles: {
+              fontSize: 8,
+              halign: 'center',
+              font: 'Palatino', // 
+              lineWidth: 0.1,
+              lineColor: [0, 0, 0]
+              },
+              columnStyles: {
+                2: { halign: 'left', cellWidth: 40 },
+                6: { cellWidth: 25 }
+              }
+            });
+
+            drawFooter();
+
+            // 3. ATTACHMENT 1: EQUIPMENT PHOTOS (Combox)
+            doc.addPage();
+            drawHeader();
+            drawFooter();
+            let currentY = 50;
+            doc.setFontSize(11);
+            doc.setFont('Palatino', 'bold');
+            doc.text("ATTACHMENT 1: EQUIPMENT PHOTOS", pageWidth / 2, currentY, { align: 'center' });
+            currentY += 5;
+
+            const sectionHeight = 180;
+            doc.setDrawColor(0);
+            doc.setLineWidth(0.1);
+            doc.rect(15, currentY, pageWidth - 30, sectionHeight);
+
+            if (comboxImage) {
+              addImageToPage(comboxImage.url, 15 + 15, currentY + 15, pageWidth - 60, sectionHeight - 40);
+            } else {
+              doc.setFont('Palatino', 'italic');
+              doc.text("[No Communication Box Image Uploaded]", pageWidth / 2, currentY + sectionHeight / 2, { align: 'center' });
+            }
+
+            // 4. ATTACHMENT 1: ADDITIONAL PHOTOS
+            if (additionalImages.length > 0) {
         doc.addPage();
         drawHeader();
         drawFooter();
         doc.setFontSize(11);
-        doc.setFont('times', 'bold');
+        doc.setFont('Palatino', 'bold');
         const titleY = 50;
         doc.text("ATTACHMENT 1: EQUIPMENT PHOTOS (Access Points)", pageWidth / 2, titleY, { align: 'center' });
-        
         const gridStartY = titleY + 5;
-        const gridHeight = pageHeight - gridStartY - 60; // Leave space for footer
-        doc.rect(15, gridStartY, pageWidth - 30, gridHeight);
-        drawImageGrid(additionalImages, gridStartY, gridHeight);
+        const gridHeight = pageHeight - gridStartY - 65;
+        doc.rect(12.7, gridStartY, pageWidth - 12.7 * 2, gridHeight);
+        draw2x2Grid(additionalImages, gridStartY, gridHeight);
       }
 
       // 5. ATTACHMENT 2: BW TEST RESULTS
-      doc.addPage();
+     doc.addPage();
       drawHeader();
       drawFooter();
       doc.setFontSize(11);
-      doc.setFont('times', 'bold');
+      doc.setFont('Palatino', 'bold');
       const bwTitleY = 50;
       doc.text("ATTACHMENT 2: BANDWIDTH TEST RESULTS", pageWidth / 2, bwTitleY, { align: 'center' });
-      
       const bwGridStartY = bwTitleY + 5;
-      const bwGridHeight = pageHeight - bwGridStartY - 60;
-      doc.rect(15, bwGridStartY, pageWidth - 30, bwGridHeight);
+      const bwGridHeight = pageHeight - bwGridStartY - 65;
+      doc.rect(12.7, bwGridStartY, pageWidth - 12.7 * 2, bwGridHeight);
 
       if (speedtestImages.length > 0) {
-        drawImageGrid(speedtestImages, bwGridStartY, bwGridHeight);
+        draw2x2Grid(speedtestImages, bwGridStartY, bwGridHeight);
       } else {
-        doc.setFont('times', 'italic');
+        doc.setFont('Palatino', 'italic');
         doc.setFontSize(10);
         doc.text("[No Speedtest Images Uploaded]", pageWidth / 2, bwGridStartY + bwGridHeight / 2, { align: 'center' });
       }
@@ -452,17 +598,18 @@ export default function MonthlyInspectionReport() {
       drawHeader();
       drawFooter();
       doc.setFontSize(11);
-      doc.setFont('times', 'bold');
+      doc.setFont('Palatino', 'bold');
       const siteTitleY = 50;
       doc.text("ATTACHMENT 3: SITE PICTURES", pageWidth / 2, siteTitleY, { align: 'center' });
-      
+
       const siteSectionY = siteTitleY + 5;
       doc.rect(15, siteSectionY, pageWidth - 30, sectionHeight);
-      
+
       if (siteInspectionImage) {
-        addImageToPage(siteInspectionImage, 15 + 1, siteSectionY + 1, pageWidth - 32, sectionHeight - 2);
+        const imageMargin = 8;
+        addImageToPage(siteInspectionImage.url, 15 + 15, siteSectionY + 15, pageWidth - 60, sectionHeight - 40);
       } else {
-        doc.setFont('times', 'italic');
+        doc.setFont('Palatino', 'italic');
         doc.setFontSize(10);
         doc.text("[No Site Inspection Image Uploaded]", pageWidth / 2, siteSectionY + sectionHeight / 2, { align: 'center' });
       }
@@ -481,10 +628,9 @@ export default function MonthlyInspectionReport() {
 
   const handleSavePDF = async () => {
     if (!pdfBlob) return;
-    
+
     setIsSaving(true);
     try {
-      // Convert blob to base64
       const base64data = await new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onloadend = () => resolve(reader.result);
@@ -493,7 +639,7 @@ export default function MonthlyInspectionReport() {
       });
 
       const token = await getToken();
-      const res = await fetch('/api/reports/save', {
+      const res = await fetch('/api/reports/monthly', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -503,14 +649,23 @@ export default function MonthlyInspectionReport() {
           siteId: selectedSite,
           reportDate: reportDate,
           pdfData: base64data,
-          reportType: 'monthly_inspection'
+          config: {
+            speedTests,
+            imageIds: {
+              combox: comboxImage?.id,
+              inspection: siteInspectionImage?.id,
+              additional: additionalImages.map(img => img.id),
+              speedtest: speedtestImages.map(img => img.id)
+            }
+          }
         })
       });
 
       const data = await res.json();
-      
+
       if (res.ok && data.success) {
         Swal.fire('Saved!', 'Report saved successfully to database.', 'success');
+        fetchHistory();
       } else {
         throw new Error(data.message || 'Failed to save report');
       }
@@ -522,10 +677,84 @@ export default function MonthlyInspectionReport() {
     }
   };
 
+  // ── Navigate AP tabs with validation; go to Attachments after last AP ──
+  const handleNextClick = () => {
+    const currentTest = speedTests[activeSpeedTestTab];
+    const missingDown = !currentTest.down;
+    const missingUp = !currentTest.up;
+
+    if (missingDown || missingUp) {
+      const missing = [];
+      if (missingDown) missing.push('Download');
+      if (missingUp) missing.push('Upload');
+
+      Swal.fire({
+        icon: 'warning',
+        title: `Missing AP ${activeSpeedTestTab + 1} Data`,
+        html: `
+          Please fill in the following:
+          <ul style="text-align: center; margin-top: 8px;">
+            ${missing.map(m => `<li>${m}</li>`).join('')}
+          </ul>
+        `,
+        confirmButtonText: 'Go Back',
+        background: '#1f2b3a',
+        color: '#e2e1e1',
+        confirmButtonColor: '#3b82f6',
+      });
+      return;
+    }
+
+    if (activeSpeedTestTab < speedTests.length - 1) {
+      setActiveSpeedTestTab(activeSpeedTestTab + 1);
+      return;
+    }
+
+    setActiveSectionTab(1);
+  };
+
+  // ── Reset all form fields when a new site is selected ──
+  const handleSiteSelect = (id) => {
+    setSelectedSite(id);
+    setPdfUrl(null);
+    setPdfBlob(null);
+
+    setSpeedTests(Array(4).fill(null).map(() => ({ down: '', up: '' })));
+    setActiveSpeedTestTab(0);
+    setActiveSectionTab(0);
+
+    setComboxImage(null);
+    setAdditionalImages([]);
+    setSpeedtestImages([]);
+    setSiteInspectionImage(null);
+
+    // Reset signatories to defaults
+    setPreparedBy(PREPARED_BY_OPTIONS[0]);
+    setCheckedBy(CHECKED_BY_OPTIONS[0]);
+    setNotedBy(NOTED_BY_OPTIONS[0]);
+  };
+
+  const handleSelectFromGallery = (img) => {
+    if (!assigningTarget) return;
+    const { type } = assigningTarget;
+    
+    if (type === 'combox') setComboxImage(img);
+    else if (type === 'inspection') setSiteInspectionImage(img);
+    else if (type === 'equipment') {
+      setAdditionalImages(prev => prev.length < 4 ? [...prev, img] : prev);
+    }
+    else if (type === 'speedtest') {
+      setSpeedtestImages(prev => prev.length < 4 ? [...prev, img] : prev);
+    }
+
+    setShowGalleryModal(false);
+    setAssigningTarget(null);
+  };
+
   return (
     <main className="p-4 sm:p-8 bg-gradient-to-br from-gray-900 via-gray-800 to-black min-h-screen text-white">
       <div className="container mx-auto flex flex-col lg:flex-row gap-6">
-        
+
         <div className="w-full lg:w-1/3">
           <div className="sticky top-8">
             <SiteList
@@ -533,7 +762,7 @@ export default function MonthlyInspectionReport() {
               loading={loadingSites}
               selectedSite={selectedSite}
               searchTerm={siteSearchTerm}
-              onSiteSelect={(id) => { setSelectedSite(id); setPdfUrl(null); }}
+              onSiteSelect={handleSiteSelect}
               onSearchChange={setSiteSearchTerm}
             />
           </div>
@@ -549,199 +778,427 @@ export default function MonthlyInspectionReport() {
 
               {!selectedSite ? (
                 <div className="py-12 text-center border-2 border-dashed border-white/10 rounded-xl">
-                  <p className="text-gray-400 italic">Select a site to generate the "{sites.find(s=>s.siteId===selectedSite)?.name || 'Site'}" layout.</p>
+                  <p className="text-gray-400 italic">Select a site to generate the layout.</p>
                 </div>
               ) : (
                 <form onSubmit={handleGeneratePDF} className="space-y-6">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="flex flex-col gap-1 md:col-span-2">
+                      <label className="text-sm text-gray-300">Load Previous Report</label>
+                      <select 
+                        onChange={(e) => loadPreviousReport(e.target.value)}
+                        className="bg-blue-500/10 border border-blue-500/30 p-3 rounded-xl outline-none text-blue-300"
+                      >
+                        <option value="">-- New Report --</option>
+                        {savedReports.map(report => (
+                          <option key={report.id} value={report.id} className="bg-gray-800">
+                            {dayjs(report.report_date).format('MMMM YYYY')} (Saved: {dayjs(report.created_at).format('MMM D')})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                     <div className="flex flex-col gap-1">
                       <label className="text-sm text-gray-300">Provider Name</label>
-                      <input type="text" value={technicianName} onChange={(e) => setTechnicianName(e.target.value)} className="bg-white/5 border border-white/20 p-3 rounded-xl outline-none"/>
+                      <input type="text" value={technicianName} onChange={(e) => setTechnicianName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()} className="bg-white/5 border border-white/20 p-3 rounded-xl outline-none" />
                     </div>
                     <div className="flex flex-col gap-1">
                       <label className="text-sm text-gray-300">Report Title</label>
-                      <input type="text" value={reportTitle} onChange={(e) => setReportTitle(e.target.value)} className="bg-white/5 border border-white/20 p-3 rounded-xl outline-none"/>
+                      <input type="text" value={reportTitle} onChange={(e) => setReportTitle(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()} className="bg-white/5 border border-white/20 p-3 rounded-xl outline-none" />
                     </div>
                     <div className="flex flex-col gap-1">
                       <label className="text-sm text-gray-300">Report Date</label>
-                      <input type="date" value={reportDate} onChange={(e) => setReportDate(e.target.value)} className="bg-white/5 border border-white/20 p-3 rounded-xl outline-none"/>
+                      <input type="date" value={reportDate} onChange={(e) => setReportDate(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()} className="bg-white/5 border border-white/20 p-3 rounded-xl outline-none" />
                     </div>
                     <div className="flex flex-col gap-1">
                       <label className="text-sm text-gray-300">Contracted Bandwidth (Mbps)</label>
-                      <input type="text" value={contractedBandwidth} onChange={(e) => setContractedBandwidth(e.target.value)} className="bg-white/5 border border-white/20 p-3 rounded-xl outline-none"/>
+                      <input type="text" value={contractedBandwidth} onChange={(e) => setContractedBandwidth(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()} className="bg-white/5 border border-white/20 p-3 rounded-xl outline-none" />
+                    </div>
+
+                    {/* ── Signatory Dropdowns ── */}
+                    <div className="flex flex-col gap-1">
+                      <label className="text-sm text-gray-300">Prepared by</label>
+                      <select
+                        value={preparedBy.name}
+                        onChange={(e) => setPreparedBy(PREPARED_BY_OPTIONS.find(o => o.name === e.target.value))}
+                        className="bg-white/5 border border-white/20 p-3 rounded-xl outline-none text-white"
+                      >
+                        {PREPARED_BY_OPTIONS.map(o => (
+                          <option key={o.name} value={o.name} className="bg-gray-800 text-white">{o.name}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="flex flex-col gap-1">
+                      <label className="text-sm text-gray-300">Checked by</label>
+                      <select
+                        value={checkedBy.name}
+                        onChange={(e) => setCheckedBy(CHECKED_BY_OPTIONS.find(o => o.name === e.target.value))}
+                        className="bg-white/5 border border-white/20 p-3 rounded-xl outline-none text-white"
+                      >
+                        {CHECKED_BY_OPTIONS.map(o => (
+                          <option key={o.name} value={o.name} className="bg-gray-800 text-white">{o.name}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="flex flex-col gap-1 md:col-span-2">
+                      <label className="text-sm text-gray-300">Noted by</label>
+                      <select
+                        value={notedBy.name}
+                        onChange={(e) => setNotedBy(NOTED_BY_OPTIONS.find(o => o.name === e.target.value))}
+                        className="bg-white/5 border border-white/20 p-3 rounded-xl outline-none text-white"
+                      >
+                        {NOTED_BY_OPTIONS.map(o => (
+                          <option key={o.name} value={o.name} className="bg-gray-800 text-white">{o.name}</option>
+                        ))}
+                      </select>
                     </div>
                   </div>
-                  
-                  <div className="border border-white/10 p-4 rounded-xl bg-white/5">
-                    <h4 className="text-sm font-semibold mb-3 text-blue-300">Speed Test Results (Mbps)</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-                      {speedTests.map((test, index) => (
-                        <div key={index} className="flex flex-col gap-2 bg-white/5 p-2 rounded-lg border border-white/5">
-                          <label className="text-xs text-gray-400 font-medium text-center">Test {index + 1}</label>
-                          <input 
-                            type="text" 
-                            placeholder="Down" 
-                            value={test.down} 
-                            onChange={(e) => handleSpeedTestChange(index, 'down', e.target.value)}
-                            className="bg-black/20 border border-white/10 p-2 rounded-md outline-none text-sm w-full text-center focus:border-blue-500/50 transition-colors"
-                          />
-                          <input 
-                            type="text" 
-                            placeholder="Up" 
-                            value={test.up} 
-                            onChange={(e) => handleSpeedTestChange(index, 'up', e.target.value)}
-                            className="bg-black/20 border border-white/10 p-2 rounded-md outline-none text-sm w-full text-center focus:border-blue-500/50 transition-colors"
-                          />
+
+                  {/* ── Section Tabs: Speed Tests + Attachments ── */}
+                  <div className="rounded-2xl overflow-hidden border border-white/10 shadow-xl">
+
+                    {/* Top-level step indicators */}
+                    <div className="flex border-b border-white/10 bg-black/30">
+                      {[
+                        {
+                          label: 'Speed Test Results',
+                          step: 1,
+                          icon: (
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                            </svg>
+                          ),
+                          accent: 'blue',
+                        },
+                        {
+                          label: 'Attachments',
+                          step: 2,
+                          icon: (
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                            </svg>
+                          ),
+                          accent: 'purple',
+                        },
+                      ].map((tab, i) => {
+                        const isActive = activeSectionTab === i;
+                        const isDone = activeSectionTab > i;
+                        return (
+                          <div
+                            key={i}
+                            onClick={() => { if (i < activeSectionTab) setActiveSectionTab(i); }}
+                            className={`
+                              relative flex-1 flex items-center justify-center gap-2 py-3.5 px-4 text-xs font-semibold tracking-wide uppercase select-none
+                              ${i < activeSectionTab ? 'cursor-pointer' : 'cursor-default'}
+                              ${isActive
+                                ? tab.accent === 'blue' ? 'text-blue-400' : 'text-purple-400'
+                                : isDone ? 'text-gray-400 hover:text-gray-200 transition-colors' : 'text-gray-600'
+                              }
+                            `}
+                          >
+                            {isActive && (
+                              <span className={`absolute inset-0 pointer-events-none ${tab.accent === 'blue' ? 'bg-gradient-to-b from-blue-600/15 to-transparent' : 'bg-gradient-to-b from-purple-600/15 to-transparent'}`} />
+                            )}
+                            <span className="relative flex items-center gap-2">
+                              <span className={`
+                                w-6 h-6 rounded-lg flex items-center justify-center shrink-0
+                                ${isActive
+                                  ? tab.accent === 'blue' ? 'bg-blue-500/30 text-blue-400' : 'bg-purple-500/30 text-purple-400'
+                                  : isDone ? 'bg-white/10 text-gray-300' : 'bg-white/5 text-gray-600'
+                                }
+                              `}>
+                                {isDone ? (
+                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                                  </svg>
+                                ) : tab.icon}
+                              </span>
+                              {tab.label}
+                            </span>
+                            {isActive && (
+                              <span className={`absolute bottom-0 left-1/2 -translate-x-1/2 h-0.5 w-16 rounded-full ${tab.accent === 'blue' ? 'bg-blue-500' : 'bg-purple-500'}`} />
+                            )}
+                            {i < 1 && (
+                              <span className="absolute right-0 top-1/2 -translate-y-1/2 h-4 w-px bg-white/10" />
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* ── Panel 0: Speed Test Results ── */}
+                    <div className={activeSectionTab === 0 ? 'block' : 'hidden'}>
+                      <div className="flex border-b border-white/10 bg-black/20">
+                        {speedTests.map((test, index) => {
+                          const hasData = test.down || test.up;
+                          const isActive = activeSpeedTestTab === index;
+                          return (
+                            <button
+                              key={index}
+                              type="button"
+                              onClick={() => setActiveSpeedTestTab(index)}
+                              className={`
+                                relative flex-1 py-3 text-xs font-semibold tracking-wider uppercase transition-all duration-200 cursor-pointer
+                                ${isActive ? 'text-white -translate-y-0.3 scale-105' : 'text-gray-500 hover:text-gray-300'}
+                              `}
+                            >
+                              {isActive && (
+                                <span className="absolute inset-0 bg-gradient-to-b from-blue-600/20 to-transparent pointer-events-none" />
+                              )}
+                              <span className="relative flex flex-col items-center gap-1">
+                                <span>AP {index + 1}</span>
+                                {hasData && (
+                                  <span className={`w-1 h-1 rounded-full ${isActive ? 'bg-blue-400' : 'bg-gray-600'}`} />
+                                )}
+                              </span>
+                              {isActive && (
+                                <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-8 h-0.5 bg-blue-500 rounded-full" />
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      <div className="bg-black/10 p-5">
+                        {speedTests.map((test, index) => (
+                          <div key={index} className={activeSpeedTestTab === index ? 'block' : 'hidden'}>
+                            <div className="grid grid-cols-2 gap-4">
+                              {/* Download */}
+                              <div className="rounded-xl bg-gradient-to-br from-cyan-500/10 to-cyan-400/5 border border-cyan-500/20 p-4 hover:border-cyan-500/40 transition-all duration-200">
+                                <div className="flex items-center gap-2 mb-3">
+                                  <div className="w-7 h-7 rounded-lg bg-cyan-500/20 flex items-center justify-center">
+                                    <svg className="w-3.5 h-3.5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+                                    </svg>
+                                  </div>
+                                  <label className="text-xs font-semibold text-cyan-400 uppercase tracking-wider">Download</label>
+                                </div>
+                                <input
+                                  type="text"
+                                  placeholder="0.00"
+                                  value={test.down}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                                      handleSpeedTestChange(index, 'down', val);
+                                    }
+                                  }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    handleNextClick();
+                                  }
+                                }}
+                                  className="w-full bg-transparent outline-none text-2xl font-bold text-white placeholder-white/20 text-center transition-all"
+                                />
+                                <p className="text-center text-xs text-cyan-400/50 mt-1">Mbps</p>
+                              </div>
+                              {/* Upload */}
+                              <div className="rounded-xl bg-gradient-to-br from-purple-500/10 to-purple-400/5 border border-purple-500/20 p-4 hover:border-purple-500/40 transition-all duration-200">
+                                <div className="flex items-center gap-2 mb-3">
+                                  <div className="w-7 h-7 rounded-lg bg-purple-500/20 flex items-center justify-center">
+                                    <svg className="w-3.5 h-3.5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 10l7-7m0 0l7 7m-7-7v18" />
+                                    </svg>
+                                  </div>
+                                  <label className="text-xs font-semibold text-purple-400 uppercase tracking-wider">Upload</label>
+                                </div>
+                                <input
+                                  type="text"
+                                  placeholder="0.00"
+                                  value={test.up}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                                      handleSpeedTestChange(index, 'up', val);
+                                    }
+                                  }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    handleNextClick();
+                                  }
+                                }}
+                                  className="w-full bg-transparent outline-none text-2xl font-bold text-white placeholder-white/20 text-center transition-all"
+                                />
+                                <p className="text-center text-xs text-purple-400/50 mt-1">Mbps</p>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Next button */}
+                      <div className="px-5 pb-5 pt-2">
+                        <button
+                          type="button"
+                          onClick={handleNextClick}
+                          className="w-full bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 py-3.5 rounded-xl font-bold transition-all shadow-lg shadow-blue-900/20 flex items-center justify-center gap-2 text-sm"
+                        >
+                          <span>{activeSpeedTestTab < speedTests.length - 1 ? `Next — AP ${activeSpeedTestTab + 2}` : 'Next — Attachments'}</span>
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* ── Panel 1: Attachments ── */}
+                    <div className={activeSectionTab === 1 ? 'block' : 'hidden'}>
+                      <div className="bg-black/10 p-5 space-y-5">
+                        {/* Single-image row: Combox + Site Inspection */}
+                        <div className="grid grid-cols-2 gap-4">
+                          {/* Communication Box */}
+                          <div className="rounded-xl border border-white/10 bg-white/5 overflow-hidden">
+                            <div className="px-3 py-2 border-b border-white/10 flex items-center justify-between">
+                              <span className="text-xs font-semibold text-gray-300 uppercase tracking-wider">Comm. Box</span>
+                              <span className="text-[10px] text-gray-600 bg-white/5 px-2 py-0.5 rounded-full">1 image</span>
+                            </div>
+                            <div className="p-3">
+                              {comboxImage ? (
+                                <div className="relative group rounded-lg overflow-hidden aspect-square bg-black/20">
+                                  <img src={comboxImage.url} alt="Combox" className="w-full h-full object-cover" />
+                                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                                    <button type="button" onClick={() => setLightboxImage(comboxImage.url)} className="w-8 h-8 bg-white/20 hover:bg-white/40 rounded-full flex items-center justify-center transition-colors">
+                                      <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                    </button>
+                                    <button type="button" onClick={() => setComboxImage(null)} className="w-8 h-8 bg-red-500/80 hover:bg-red-500 rounded-full flex items-center justify-center transition-colors">
+                                      <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <button 
+                                  type="button"
+                                  onClick={() => { setAssigningTarget({ type: 'combox', label: 'Communication Box' }); setShowGalleryModal(true); }}
+                                  className="w-full flex flex-col items-center justify-center aspect-square rounded-lg border-2 border-dashed border-white/5 bg-black/20 text-gray-600 hover:border-blue-500/40 hover:bg-blue-500/5 hover:text-blue-400 transition-all group"
+                                >
+                                  <svg className="w-6 h-6 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                  </svg>
+                                  <span className="text-[10px] text-center px-2">
+                                    Assign from gallery
+                                  </span>
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Site Inspection */}
+                          <div className="rounded-xl border border-white/10 bg-white/5 overflow-hidden">
+                            <div className="px-3 py-2 border-b border-white/10 flex items-center justify-between">
+                              <span className="text-xs font-semibold text-gray-300 uppercase tracking-wider">Site Inspection</span>
+                              <span className="text-[10px] text-gray-600 bg-white/5 px-2 py-0.5 rounded-full">1 image</span>
+                            </div>
+                            <div className="p-3">
+                              {siteInspectionImage ? (
+                                <div className="relative group rounded-lg overflow-hidden aspect-square bg-black/20">
+                                  <img src={siteInspectionImage.url} alt="Site" className="w-full h-full object-cover" />
+                                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                                    <button type="button" onClick={() => setLightboxImage(siteInspectionImage.url)} className="w-8 h-8 bg-white/20 hover:bg-white/40 rounded-full flex items-center justify-center transition-colors">
+                                      <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                    </button>
+                                    <button type="button" onClick={() => setSiteInspectionImage(null)} className="w-8 h-8 bg-red-500/80 hover:bg-red-500 rounded-full flex items-center justify-center transition-colors">
+                                      <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <button 
+                                  type="button"
+                                  onClick={() => { setAssigningTarget({ type: 'inspection', label: 'Site Inspection' }); setShowGalleryModal(true); }}
+                                  className="w-full flex flex-col items-center justify-center aspect-square rounded-lg border-2 border-dashed border-white/5 bg-black/20 text-gray-600 hover:border-blue-500/40 hover:bg-blue-500/5 hover:text-blue-400 transition-all group"
+                                >
+                                  <svg className="w-6 h-6 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                  </svg>
+                                  <span className="text-[10px] text-center px-2">
+                                    Assign from gallery
+                                  </span>
+                                </button>
+                              )}
+                            </div>
+                          </div>
                         </div>
-                      ))}
-                    </div>
-                  </div>
-                  
-                  <div className="border border-white/10 p-4 rounded-xl bg-white/5 space-y-4">
-                    <h4 className="text-sm font-semibold text-blue-300 border-b border-white/10 pb-2">Attachments</h4>
-                    
-                    {/* Combox Image */}
-                    <div className="space-y-2">
-                      <label className="text-xs text-gray-300 block">Communication Box (1 Image)</label>
-                      <div className="flex items-center gap-4">
-                        <label className="cursor-pointer bg-blue-600 hover:bg-blue-500 text-white text-xs px-3 py-2 rounded-lg transition-colors">
-                          Upload Image
-                          <input type="file" accept="image/*" className="hidden" onChange={(e) => handleImageUpload(e, setComboxImage)} />
-                        </label>
-                        {comboxImage && (
-                          <div className="relative group">
-                            <img src={comboxImage} alt="Combox" className="h-16 w-16 object-cover rounded-lg border border-white/20" />
-                            <button onClick={() => setComboxImage(null)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 w-5 h-5 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity">×</button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
 
-                    {/* Additional Equipment Images */}
-                    <div className="space-y-2">
-                      <label className="text-xs text-gray-300 block">Additional Equipment Photos</label>
-                      <div className="flex flex-wrap gap-3">
-                        {additionalImages.map((img, idx) => (
-                          <div key={idx} className="relative group">
-                            <img src={img} alt={`Eq ${idx}`} className="h-16 w-16 object-cover rounded-lg border border-white/20" />
-                            <button onClick={() => removeImage(idx, setAdditionalImages)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 w-5 h-5 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity">×</button>
+                        {/* Multi-image rows */}
+                        {[
+                          { label: 'Equipment Photos', sublabel: 'Access points, cables, hardware', zone: 'equipment', images: additionalImages, setter: setAdditionalImages },
+                          { label: 'Speedtest Results', sublabel: 'Bandwidth test screenshots', zone: 'speedtest', images: speedtestImages, setter: setSpeedtestImages },
+                        ].map(({ label, sublabel, zone, images, setter }) => (
+                          <div key={label} className="rounded-xl border border-white/10 bg-white/5 overflow-hidden">
+                            <div className="px-4 py-2.5 border-b border-white/10 flex items-center justify-between">
+                              <div>
+                                <span className="text-xs font-semibold text-gray-300 uppercase tracking-wider">{label}</span>
+                                <p className="text-[10px] text-gray-600 mt-0.5">{sublabel}</p>
+                              </div>
+                              <span className="text-[10px] text-gray-500 bg-white/5 px-2 py-0.5 rounded-full">
+                                {images.length} / 4
+                              </span>
+                            </div>
+                            <div className="p-4">
+                              <div className="grid grid-cols-4 gap-3">
+                                {images.map((img, idx) => (
+                                  <div key={idx} className="relative group aspect-square rounded-xl overflow-hidden bg-black/20 border border-white/10 hover:border-white/20 transition-all shadow-md">
+                                    <img src={img.url} alt={`${label} ${idx}`} className="w-full h-full object-cover" />
+                                    <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                                    <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                                      <button type="button" onClick={() => setLightboxImage(img.url)} className="w-8 h-8 bg-white/20 hover:bg-white/40 backdrop-blur-sm rounded-full flex items-center justify-center transition-all hover:scale-110">
+                                        <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                      </button>
+                                      <button type="button" onClick={() => removeImage(idx, setter)} className="w-8 h-8 bg-red-500/80 hover:bg-red-500 backdrop-blur-sm rounded-full flex items-center justify-center transition-all hover:scale-110">
+                                        <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                      </button>
+                                    </div>
+                                    <div className="absolute bottom-1.5 right-1.5 bg-black/50 backdrop-blur-sm text-[9px] text-white/60 px-1.5 py-0.5 rounded-md font-medium">
+                                      {idx + 1}
+                                    </div>
+                                  </div>
+                                ))}
+                                {images.length < 4 && (
+                                  <button 
+                                    type="button"
+                                    onClick={() => { setAssigningTarget({ type: zone === 'equipment' ? 'equipment' : 'speedtest', label: label }); setShowGalleryModal(true); }}
+                                    className="aspect-square rounded-xl border-2 border-dashed border-white/5 flex flex-col items-center justify-center bg-black/10 text-gray-600 hover:border-blue-500/40 hover:bg-blue-500/5 hover:text-blue-400 transition-all group"
+                                  >
+                                    <div className="w-8 h-8 rounded-full flex items-center justify-center bg-white/5 mb-1 group-hover:bg-blue-500/20 transition-colors">
+                                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                                      </svg>
+                                    </div>
+                                    <span className="text-[9px] font-medium">Assign from gallery</span>
+                                  </button>
+                                )}
+                              </div>
+                            </div>
                           </div>
                         ))}
-                        <label className="cursor-pointer h-16 w-16 bg-white/5 border border-dashed border-white/30 rounded-lg flex items-center justify-center hover:bg-white/10 transition-colors text-white/50 hover:text-white">
-                          <span className="text-2xl">+</span>
-                          <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => handleImageUpload(e, setAdditionalImages, true)} />
-                        </label>
+                      </div>
+                      {/* Generate button */}
+                      <div className="pt-2">
+                        <button
+                          disabled={isGenerating}
+                          type="submit"
+                          className="w-full bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 py-3.5 rounded-xl font-bold transition-all shadow-lg shadow-blue-900/20 flex items-center justify-center gap-2 text-sm disabled:opacity-60 disabled:cursor-not-allowed"
+                        >
+                          {isGenerating ? (
+                            <>
+                              <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                              Generating...
+                            </>
+                          ) : (
+                            <>
+                              <span>Generate Monthly Report</span>
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                              </svg>
+                            </>
+                          )}
+                        </button>
                       </div>
                     </div>
 
-                    {/* Speedtest Images */}
-                    <div className="space-y-2">
-                      <label className="text-xs text-gray-300 block">Speedtest Result Photos</label>
-                      <div className="flex flex-wrap gap-3">
-                        {speedtestImages.map((img, idx) => (
-                          <div key={idx} className="relative group">
-                            <img src={img} alt={`Speed ${idx}`} className="h-16 w-16 object-cover rounded-lg border border-white/20" />
-                            <button onClick={() => removeImage(idx, setSpeedtestImages)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 w-5 h-5 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity">×</button>
-                          </div>
-                        ))}
-                        <label className="cursor-pointer h-16 w-16 bg-white/5 border border-dashed border-white/30 rounded-lg flex items-center justify-center hover:bg-white/10 transition-colors text-white/50 hover:text-white">
-                          <span className="text-2xl">+</span>
-                          <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => handleImageUpload(e, setSpeedtestImages, true)} />
-                        </label>
-                      </div>
-                    </div>
-
-                    {/* Site Inspection Image */}
-                    <div className="space-y-2">
-                      <label className="text-xs text-gray-300 block">Site Inspection Picture (1 Image)</label>
-                      <div className="flex items-center gap-4">
-                        <label className="cursor-pointer bg-blue-600 hover:bg-blue-500 text-white text-xs px-3 py-2 rounded-lg transition-colors">
-                          Upload Image
-                          <input type="file" accept="image/*" className="hidden" onChange={(e) => handleImageUpload(e, setSiteInspectionImage)} />
-                        </label>
-                        {siteInspectionImage && (
-                          <div className="relative group">
-                            <img src={siteInspectionImage} alt="Site" className="h-16 w-16 object-cover rounded-lg border border-white/20" />
-                            <button onClick={() => setSiteInspectionImage(null)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 w-5 h-5 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity">×</button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Attachments Section */}
-                  <div className="border-t border-white/10 mt-6 pt-6">
-                    <h3 className="text-lg font-semibold mb-4">Attachments</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      {/* Combox Image */}
-                      <div className="bg-white/5 p-4 rounded-lg border border-white/10">
-                        <label className="block text-sm font-medium mb-2">Communication Box Photo</label>
-                        <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, setComboxImage, false)} className="w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-500/10 file:text-blue-300 hover:file:bg-blue-500/20"/>
-                        {comboxImage && (
-                          <div className="mt-4 relative w-full h-48 rounded-md overflow-hidden bg-black/20">
-                            <img src={comboxImage} alt="Combox" className="w-full h-full object-contain"/>
-                            <button type="button" onClick={() => setComboxImage(null)} className="absolute top-2 right-2 bg-red-600/80 text-white rounded-full p-0.5 w-6 h-6 flex items-center justify-center leading-none hover:bg-red-500 transition-colors">&times;</button>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Site Inspection Image */}
-                      <div className="bg-white/5 p-4 rounded-lg border border-white/10">
-                        <label className="block text-sm font-medium mb-2">Site Inspection Photo</label>
-                        <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, setSiteInspectionImage, false)} className="w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-500/10 file:text-blue-300 hover:file:bg-blue-500/20"/>
-                        {siteInspectionImage && (
-                          <div className="mt-4 relative w-full h-48 rounded-md overflow-hidden bg-black/20">
-                            <img src={siteInspectionImage} alt="Site Inspection" className="w-full h-full object-contain"/>
-                            <button type="button" onClick={() => setSiteInspectionImage(null)} className="absolute top-2 right-2 bg-red-600/80 text-white rounded-full p-0.5 w-6 h-6 flex items-center justify-center leading-none hover:bg-red-500 transition-colors">&times;</button>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Additional Images */}
-                      <div className="md:col-span-2 bg-white/5 p-4 rounded-lg border border-white/10">
-                        <label className="block text-sm font-medium mb-2">Additional Equipment Photos</label>
-                        <input type="file" accept="image/*" multiple onChange={(e) => handleImageUpload(e, setAdditionalImages, true)} className="w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-500/10 file:text-blue-300 hover:file:bg-blue-500/20"/>
-                        {additionalImages.length > 0 && (
-                          <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-                            {additionalImages.map((img, index) => (
-                              <div key={index} className="relative aspect-square rounded-md overflow-hidden bg-black/20">
-                                <img src={img} alt={`Additional ${index + 1}`} className="w-full h-full object-contain"/>
-                                <button type="button" onClick={() => removeImage(index, setAdditionalImages)} className="absolute top-1 right-1 text-xs bg-red-600/80 text-white rounded-full p-0.5 w-5 h-5 flex items-center justify-center leading-none hover:bg-red-500 transition-colors">&times;</button>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Speedtest Images */}
-                      <div className="md:col-span-2 bg-white/5 p-4 rounded-lg border border-white/10">
-                        <label className="block text-sm font-medium mb-2">Speedtest Result Photos</label>
-                        <input type="file" accept="image/*" multiple onChange={(e) => handleImageUpload(e, setSpeedtestImages, true)} className="w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-500/10 file:text-blue-300 hover:file:bg-blue-500/20"/>
-                        {speedtestImages.length > 0 && (
-                          <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-                            {speedtestImages.map((img, index) => (
-                              <div key={index} className="relative aspect-square rounded-md overflow-hidden bg-black/20">
-                                <img src={img} alt={`Speedtest ${index + 1}`} className="w-full h-full object-contain"/>
-                                <button type="button" onClick={() => removeImage(index, setSpeedtestImages)} className="absolute top-1 right-1 text-xs bg-red-600/80 text-white rounded-full p-0.5 w-5 h-5 flex items-center justify-center leading-none hover:bg-red-500 transition-colors">&times;</button>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="pt-2">
-                    <button disabled={isGenerating} type="submit" className="w-full bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 py-4 rounded-xl font-bold transition-all shadow-lg shadow-blue-900/20 flex items-center justify-center gap-2">
-                      {isGenerating ? (
-                        <>Generating...</>
-                      ) : (
-                        <>
-                          <span>Generate Monthly Report</span>
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
-                        </>
-                      )}
-                    </button>
                   </div>
                 </form>
               )}
@@ -750,20 +1207,20 @@ export default function MonthlyInspectionReport() {
             <div className="bg-white/5 rounded-2xl border border-white/10 min-h-[900px] flex flex-col overflow-hidden shadow-2xl animate-in fade-in slide-in-from-bottom-4 duration-500">
               <div className="bg-white/10 p-4 border-b border-white/10 flex justify-between items-center backdrop-blur-md">
                 <div className="flex items-center gap-2">
-                  <button 
-                    onClick={() => setPdfUrl(null)} 
+                  <button
+                    onClick={() => setPdfUrl(null)}
                     className="flex items-center gap-2 text-sm font-medium text-gray-300 hover:text-white bg-white/5 hover:bg-white/10 px-4 py-2 rounded-lg transition-all"
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
                     Back to Configuration
                   </button>
-                  <button 
+                  <button
                     onClick={handleSavePDF}
                     disabled={isSaving}
                     className="flex items-center gap-2 text-sm font-medium text-white bg-green-600 hover:bg-green-700 px-4 py-2 rounded-lg transition-all shadow-lg shadow-green-900/20 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {isSaving ? (
-                      <span className="flex items-center gap-2"><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"/> Saving...</span>
+                      <span className="flex items-center gap-2"><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Saving...</span>
                     ) : (
                       <>
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" /></svg>
@@ -780,12 +1237,71 @@ export default function MonthlyInspectionReport() {
                 </div>
               </div>
               <div className="flex-1 flex items-center justify-center bg-gray-900/50">
-                <iframe src={pdfUrl} className="w-full h-full border-none" title="Report Preview"/>
+                <iframe src={pdfUrl} className="w-full h-full border-none" title="Report Preview" />
               </div>
             </div>
           )}
         </div>
       </div>
+      {lightboxImage && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setLightboxImage(null)}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={lightboxImage}
+            alt="Preview"
+            className="max-w-full max-h-full object-contain rounded-xl shadow-2xl"
+          />
+        </div>
+      )}
+
+      {/* Gallery Selection Modal */}
+      {showGalleryModal && (
+        <div className="fixed inset-0 z-[60] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-300">
+          <div className="bg-gray-900 border border-white/10 rounded-2xl w-full max-w-4xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden">
+            <div className="p-4 border-b border-white/10 flex justify-between items-center bg-white/5">
+              <div>
+                <h3 className="text-lg font-bold text-white">Select from Site Gallery</h3>
+                <p className="text-xs text-gray-400">Choose an image to assign to <span className="text-blue-400 font-semibold">{assigningTarget?.label}</span></p>
+              </div>
+              <button 
+                onClick={() => setShowGalleryModal(false)}
+                className="p-2 hover:bg-white/10 rounded-full transition-colors"
+              >
+                <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            
+            <div className="p-6 overflow-y-auto grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+              {siteGallery.length === 0 ? (
+                <div className="col-span-full py-20 text-center">
+                  <p className="text-gray-500 italic">No images found in the gallery for this site.</p>
+                </div>
+              ) : (
+                siteGallery.map((img, i) => (
+                  <div 
+                    key={i}
+                    onClick={() => handleSelectFromGallery(img)}
+                    className={`relative group aspect-square rounded-xl overflow-hidden border-2 cursor-pointer transition-all hover:scale-[1.02] active:scale-95 ${img.isMir ? 'border-blue-500/50 shadow-lg shadow-blue-500/10' : 'border-white/5 hover:border-white/20'}`}
+                  >
+                    <img src={img.url} className="w-full h-full object-cover" alt="" />
+                    <div className="absolute inset-0 bg-blue-600/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                      <span className="bg-white text-blue-600 text-[10px] font-bold px-4 py-2 rounded-full uppercase tracking-wider shadow-xl">Select Image</span>
+                    </div>
+                    {img.isMir && (
+                      <div className="absolute top-2 right-2 bg-blue-600 text-white p-1 rounded-full shadow-lg border border-blue-400/50">
+                        <svg className="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 20 20"><path d="M3 6a2 2 0 012-2h10a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V6z" /><path d="M13 6V4a1 1 0 00-1-1h-2a1 1 0 00-1 1v2H7a1 1 0 00-1-1v1h8V7a1 1 0 00-1-1h-1z" /></svg>
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
