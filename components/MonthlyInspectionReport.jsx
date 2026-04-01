@@ -10,6 +10,7 @@ import Swal from "sweetalert2";
 import dict_logo from '@/resources/dict_logo.png';
 import freq_logo from '@/resources/freq_logo.png';
 
+
 export const getBase64FromImageUrl = (url) => {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -290,13 +291,13 @@ export default function MonthlyInspectionReport() {
       const drawFooter = () => {
         const footerY = pageHeight - 55;
         doc.setFontSize(10);
-        doc.setFont('times', 'italic');
+        doc.setFont('Palatino', 'italic');
         doc.text("Notes: Photos should have Geotagging (coordinates, date and time stamp)", 15, footerY);
 
         // Prepared by (left column)
-        doc.setFont('times', 'bold');
+        doc.setFont('Palatino', 'bold');
         doc.text(`Prepared by: ${preparedBy.name}`, 15, footerY + 10);
-        doc.setFont('times', 'normal');
+        doc.setFont('Palatino', 'normal');
         preparedBy.lines.forEach((line, i) => {
           doc.text(line, 15, footerY + 15 + (i * 5));
         });
@@ -304,17 +305,17 @@ export default function MonthlyInspectionReport() {
         const rightColX = pageWidth / 2 + 10;
 
         // Checked by (right column, top)
-        doc.setFont('times', 'bold');
+        doc.setFont('Palatino', 'bold');
         doc.text(`Checked by: ${checkedBy.name}`, rightColX, footerY + 10);
-        doc.setFont('times', 'normal');
+        doc.setFont('Palatino', 'normal');
         checkedBy.lines.forEach((line, i) => {
           doc.text(line, rightColX, footerY + 15 + (i * 5));
         });
 
         // Noted by (right column, bottom)
-        doc.setFont('times', 'bold');
+        doc.setFont('Palatino', 'bold');
         doc.text(`Noted by: ${notedBy.name}`, rightColX, footerY + 30);
-        doc.setFont('times', 'normal');
+        doc.setFont('Palatino', 'normal');
         notedBy.lines.forEach((line, i) => {
           doc.text(line, rightColX, footerY + 35 + (i * 5));
         });
