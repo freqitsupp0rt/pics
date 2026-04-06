@@ -257,7 +257,7 @@ export default function SiteList({
                  isSelected ? "border-white" : "border-transparent"
                 } ${rowBg} ${
                  isSelected 
-                ? "bg-green-500 text-white font-semibold scale-[1.05] ring-1 ring-black" 
+                ? "bg-green-500 text-white font-semibold scale-[1.04] ring-1 ring-gray-300/50 shadow-lg" 
                 : "text-white"
                 } hover:bg-white/20`}
                   > 
