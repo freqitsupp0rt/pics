@@ -84,8 +84,8 @@ const expandSiteType = (siteName) => {
 
 // ── Signatory options  ── // dropdowns that lets you select from predefined signatories instead of hardcoding them in the PDF generation logic. Each option includes the person's name and their associated lines (roles/titles) that will be printed under their name in the PDF.
 const PREPARED_BY_OPTIONS = [
-  { name: 'Engr. Jason Ilde Y. Aguihon', lines: ['Project Engineer'] },
-  { name: 'Engr. Eduardo Dela Cruz', lines: ['Project Engineer'] },
+  { name: 'Engr. Jason Ilde Y. Aguihon, ETC', lines: ['Project Engineer'] },
+  { name: 'Engr. Eduardo M. Dela Cruz Jr, ECT', lines: ['Project Engineer'] },
 ]; 
 
 const CHECKED_BY_OPTIONS = [
@@ -195,6 +195,9 @@ export default function MonthlyInspectionReport() {
   const [pdfBlob, setPdfBlob] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
   const [lightboxImage, setLightboxImage] = useState(null);
+  const [lightboxMeta, setLightboxMeta] = useState(null); // { zone: 'equipment'|'speedtest', index: number }//for brightness and sharpness adjustments in lightbox
+  const [brightness, setBrightness] = useState(100);
+  const [sharpness, setSharpness] = useState(100);
 
   const [logoDataUrl, setLogoDataUrl] = useState(null);
   const [logoDataUrl2, setLogoDataUrl2] = useState(null);
@@ -252,7 +255,21 @@ export default function MonthlyInspectionReport() {
     }
     fetchSites();
   }, [getToken]);
-
+const applyImageAdjustments = (imageDataUrl, brightness, sharpness) => {//for brightness and sharpness adjustments in lightbox
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext('2d');
+      ctx.filter = `brightness(${brightness}%) contrast(${sharpness}%)`;
+      ctx.drawImage(img, 0, 0);
+      resolve(canvas.toDataURL('image/jpeg'));
+    };
+    img.src = imageDataUrl;
+  });
+};
   const handleGeneratePDF = (e) => {
     e.preventDefault();
     if (!selectedSite) return alert("Please select a site first");
@@ -360,14 +377,32 @@ export default function MonthlyInspectionReport() {
 
   drawSignatory("Prepared by: ", preparedBy, leftX, footerY + 12); // no fixed width
   drawSignatory("Checked by: ", checkedBy, rightX, footerY + 12, fixedWidth); // aligned
-  drawSignatory("Noted by: ", notedBy, rightX, footerY + 30, fixedWidth);     // aligned
+  drawSignatory("Noted by: ", notedBy, rightX, footerY + 33, fixedWidth);     // aligned
 }; // ── Updated drawFooter using selected signatories ──
  
     //adding image with aspect ration
      const addImageToPage = (imgData, x, y, maxWidth, maxHeight) => {
   if (imgData) {
     try {
-      doc.addImage(imgData, 'JPEG', x, y, maxWidth, maxHeight);
+      const img = new Image();
+      img.src = imgData;
+      const naturalW = img.naturalWidth || maxWidth;
+      const naturalH = img.naturalHeight || maxHeight;
+      const ratio = naturalW / naturalH;
+
+      let drawW = maxWidth;
+      let drawH = maxWidth / ratio;
+
+      if (drawH > maxHeight) {
+        drawH = maxHeight;
+        drawW = maxHeight * ratio;
+      }
+
+      // Center the image in the cell
+      const offsetX = x + (maxWidth - drawW) / 2;
+      const offsetY = y + (maxHeight - drawH) / 2;
+
+      doc.addImage(imgData, 'JPEG', offsetX, offsetY, drawW, drawH);
     } catch (error) {
       console.warn("Error adding image to PDF", error);
       doc.text("[Image Error]", x + maxWidth / 2, y + maxHeight / 2, { align: 'center' });
@@ -383,7 +418,7 @@ export default function MonthlyInspectionReport() {
 
         if (images.length === 5) {
           const rowHeight = (availableHeight - gap) / 2;
-
+          
           const topRowY = startY + padding;
           const topRowWidth = (availableWidth - gap) / 2;
 
@@ -415,16 +450,24 @@ export default function MonthlyInspectionReport() {
       };
 
       
-       const draw2x2Grid = (images, startY, gridHeight, margin = 12.7) => {
-  const innerPadding = 9; //  space from border edges
-  const gapX = 9;         //  horizontal gap between images
-  const gapY = 9;         //  vertical gap between images
+  const draw2x2Grid = (images, startY, gridHeight, margin = 12.7) => {// for 2x2 grid layout in attachments with dynamic centering and spacing
+  const innerPadding = 6;
+  const gapX = 20;
+  const gapY = -11 ;
 
   const totalWidth = pageWidth - margin * 2 - innerPadding * 2;
   const totalHeight = gridHeight - innerPadding * 2;
 
-  const cellWidth = (totalWidth - gapX) / 2;
-  const cellHeight = (totalHeight - gapY) / 2;
+    const cellWidth = (totalWidth - gapX) / 2 - 15;
+  const cellHeight = (totalHeight - gapY) / 2 + 9;
+
+  // Center the entire grid horizontally inside the box
+  const gridTotalWidth = cellWidth * 2 + gapX;
+  const horizontalOffset = (totalWidth - gridTotalWidth) / 2;
+
+  // Center the entire grid vertically inside the box
+  const gridTotalHeight = cellHeight * 2 + gapY;
+  const verticalOffset = (totalHeight - gridTotalHeight) / 2;
 
   const positions = [
     { col: 0, row: 0 },
@@ -435,18 +478,29 @@ export default function MonthlyInspectionReport() {
 
   images.slice(0, 4).forEach((img, index) => {
     const { col, row } = positions[index];
-    const x = margin + innerPadding + col * (cellWidth + gapX);
-    const y = startY + innerPadding + row * (cellHeight + gapY);
+    const x = margin + innerPadding + horizontalOffset + col * (cellWidth + gapX);
+    const y = startY + innerPadding + verticalOffset + row * (cellHeight + gapY);
     addImageToPage(img, x, y, cellWidth, cellHeight);
   });
 };
 
       // 1. TOP HEADER & PAGE 1 INFO
-      drawHeader();
-      doc.setFontSize(12);
-      doc.setFont('Palatino', 'bold'); // Updated to Palatino Bold
-      doc.text(`Provider Name: FREQ IT SOLUTIONS`, 15, doc.lastAutoTable.finalY + 10);
-      doc.text(`Date Prepared: ${dayjs(reportDate).format('MMMM D, YYYY')}`, pageWidth - 15, doc.lastAutoTable.finalY + 10, { align: 'right' });
+     drawHeader();
+doc.setFontSize(12);
+
+// Provider Name
+doc.setFont('Palatino', 'normal');
+doc.text('Provider Name: ', 15, doc.lastAutoTable.finalY + 10);
+const providerLabelWidth = doc.getTextWidth('Provider Name: ');
+doc.setFont('Palatino', 'bold');
+doc.text('FREQ IT SOLUTIONS', 15 + providerLabelWidth, doc.lastAutoTable.finalY + 10);
+
+// Date Prepared
+const dateText = dayjs(reportDate).format('MMMM D, YYYY');
+doc.setFont('Palatino', 'normal');
+doc.text('Date Prepared: ', pageWidth - 15 - doc.getTextWidth('Date Prepared: ') - doc.getTextWidth(dateText), doc.lastAutoTable.finalY + 10);
+doc.setFont('Palatino', 'bold');
+doc.text(dateText, pageWidth - 15, doc.lastAutoTable.finalY + 10, { align: 'right' });
 
       // 2. MAIN DATA TABLE
       autoTable(doc, {
@@ -504,10 +558,15 @@ export default function MonthlyInspectionReport() {
         lineWidth: 0.1,
         lineColor: [0, 0, 0]
         },
-        columnStyles: {
-          2: { halign: 'left', cellWidth: 40 },
-          6: { cellWidth: 25 }
-        }
+       columnStyles: {
+  0: { halign: 'center', cellWidth: 12 }, // Item No. width
+  1: { halign: 'center', cellWidth: 35 }, // Location code width
+  2: { halign: 'left', cellWidth: 60 }, // Location name width table
+  5: { cellWidth: 18 }, // Contracted Bandwidth
+  6: { cellWidth: 18 } , // Remarks
+  3: { cellWidth: 19 }, // Downlink Bandwidth
+  4: { cellWidth: 19 }, // Uplink Bandwidth
+}
       });
 
       drawFooter();
@@ -576,7 +635,7 @@ if (speedtestImages.length > 0) {
       doc.setFontSize(11);
       doc.setFont('Palatino', 'bold');
       const siteTitleY = 50;
-      doc.text("ATTACHMENT 3: SITE PICTURES", pageWidth / 2, siteTitleY, { align: 'center' });
+      doc.text("ATTACHMENT 3: SITE BENEFICIARY", pageWidth / 2, siteTitleY, { align: 'center' });
 
       const siteSectionY = siteTitleY + 5;
       doc.rect(15, siteSectionY, pageWidth - 30, sectionHeight);
@@ -777,7 +836,7 @@ if (speedtestImages.length > 0) {
                       </select>
                     </div>
 
-                    <div className="flex flex-col gap-1 md:col-span-2">
+                    <div className="flex flex-col gap-1 ">
                       <label className="text-sm text-gray-300">Noted by</label>
                       <select
                         value={notedBy.name}
@@ -1087,9 +1146,15 @@ if (speedtestImages.length > 0) {
                                     <img src={img} alt={`${label} ${idx}`} className="w-full h-full object-cover" />
                                     <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
                                     <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                                      <button type="button" onClick={() => setLightboxImage(img)} className="w-8 h-8 bg-white/20 hover:bg-white/40 backdrop-blur-sm rounded-full flex items-center justify-center transition-all hover:scale-110">
-                                        <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
-                                      </button>
+                                    
+                      <button type="button" onClick={() => {// Open lightbox with selected image and adjustment of sharpness/brightness
+                      setLightboxImage(img);
+                        setLightboxMeta({ zone: zone === 'equipment' ? 'equipment' : 'speedtest', index: idx });
+                       setBrightness(100);
+                      setSharpness(100);
+                      }} className="w-8 h-8 bg-white/20 hover:bg-white/40 backdrop-blur-sm rounded-full flex items-center justify-center transition-all hover:scale-110">
+                      <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                      </button>
                                       <button type="button" onClick={() => removeImage(idx, setter)} className="w-8 h-8 bg-red-500/80 hover:bg-red-500 backdrop-blur-sm rounded-full flex items-center justify-center transition-all hover:scale-110">
                                         <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                                       </button>
@@ -1192,18 +1257,78 @@ if (speedtestImages.length > 0) {
         </div>
       </div>
       {lightboxImage && (
-        <div
-          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
-          onClick={() => setLightboxImage(null)}
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={lightboxImage}
-            alt="Preview"
-            className="max-w-full max-h-full object-contain rounded-xl shadow-2xl"
-          />
+  <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+    <div className="bg-gray-900 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-w-2xl w-full">
+
+      {/* Image Preview */}
+      <div className="relative bg-black flex items-center justify-center" style={{ minHeight: 350 }}>
+        <img
+          src={lightboxImage}
+          alt="Preview"
+          className="max-w-full max-h-[400px] object-contain"
+          style={{
+            filter: lightboxMeta
+              ? `brightness(${brightness}%) contrast(${sharpness}%)`
+              : 'none'
+          }}
+        />
+      </div>
+
+      {/* Controls - only for equipment and speedtest */}
+      {lightboxMeta && (
+        <div className="p-5 space-y-4 border-t border-white/10">
+          <div className="flex items-center gap-4">
+            <span className="text-xs text-gray-400 w-20 shrink-0">Brightness</span>
+            <input
+              type="range" min={50} max={200} value={brightness}
+              onChange={(e) => setBrightness(Number(e.target.value))}
+              className="flex-1 accent-yellow-400"
+            />
+            <span className="text-xs text-gray-300 w-8 text-right">{brightness}%</span>
+          </div>
+          <div className="flex items-center gap-4">
+            <span className="text-xs text-gray-400 w-20 shrink-0">Contrast</span>
+            <input
+              type="range" min={50} max={300} value={sharpness}
+              onChange={(e) => setSharpness(Number(e.target.value))}
+              className="flex-1 accent-blue-400"
+            />
+            <span className="text-xs text-gray-300 w-8 text-right">{sharpness}%</span>
+          </div>
         </div>
       )}
+
+      {/* Buttons */}
+      <div className="flex gap-3 p-4 border-t border-white/10">
+        <button
+          type="button"
+          onClick={() => { setLightboxImage(null); setLightboxMeta(null); }}
+          className="flex-1 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-sm text-gray-300 transition-all"
+        >
+          Cancel
+        </button>
+        {lightboxMeta && (
+          <button
+            type="button"
+            onClick={async () => {
+              const adjusted = await applyImageAdjustments(lightboxImage, brightness, sharpness);
+              if (lightboxMeta.zone === 'equipment') {
+                setAdditionalImages(prev => prev.map((img, i) => i === lightboxMeta.index ? adjusted : img));
+              } else {
+                setSpeedtestImages(prev => prev.map((img, i) => i === lightboxMeta.index ? adjusted : img));
+              }
+              setLightboxImage(null);
+              setLightboxMeta(null);
+            }}
+            className="flex-1 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-sm text-white font-semibold transition-all"
+          >
+            Apply & Save
+          </button>
+        )}
+      </div>
+    </div>
+  </div>
+)}
     </main>
   );
 }
