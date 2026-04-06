@@ -36,24 +36,20 @@ const parseSiteInfo = (fullSiteName) => {
   if (firstSpaceIndex > 0) {
     const potentialCode = trimmedName.substring(0, firstSpaceIndex);
     const potentialName = trimmedName.substring(firstSpaceIndex + 1);
-
     const isSiteCode = /^PICS-[A-Z0-9-]+$/i.test(potentialCode);
-
     if (isSiteCode) {
-      return {
-        siteCode: potentialCode,
-        siteName: potentialName
-      };
+      return { siteCode: potentialCode, siteName: potentialName };
     }
   }
 
   return { siteCode: '', siteName: trimmedName };
 };
-//for completing abbrevations
+
+// for completing abbreviations
 const expandSiteType = (siteName) => {
   if (!siteName) return siteName;
-  
-  siteName = siteName.replace(/_/g, ' '); // for underscores in site names
+
+  siteName = siteName.replace(/_/g, ' ');
 
   const abbreviations = {
     'ES': 'Elementary School',
@@ -62,7 +58,7 @@ const expandSiteType = (siteName) => {
     'MP': 'Municipal Plaza',
     'MH': 'Municipal Hall',
     'IS': 'Integrated School',
-    'CS': 'Central School' // added CS abbreviation for Central School
+    'CS': 'Central School',
   };
   const separators = ['', '-', ' ', '.'];
   let expandedName = siteName;
@@ -80,13 +76,10 @@ const expandSiteType = (siteName) => {
   return expandedName;
 };
 
-
-
-// ── Signatory options  ── // dropdowns that lets you select from predefined signatories instead of hardcoding them in the PDF generation logic. Each option includes the person's name and their associated lines (roles/titles) that will be printed under their name in the PDF.
 const PREPARED_BY_OPTIONS = [
   { name: 'Engr. Jason Ilde Y. Aguihon, ETC', lines: ['Project Engineer'] },
   { name: 'Engr. Eduardo M. Dela Cruz Jr, ECT', lines: ['Project Engineer'] },
-]; 
+];
 
 const CHECKED_BY_OPTIONS = [
   { name: 'Engr. Cindy D. Camarines', lines: ['Engineer II, FPIAP', 'DICT Regional Office VIII'] },
@@ -114,7 +107,6 @@ export default function MonthlyInspectionReport() {
   const [activeSpeedTestTab, setActiveSpeedTestTab] = useState(0);
   const [activeSectionTab, setActiveSectionTab] = useState(0);
 
-  // ── Signatory state ──
   const [preparedBy, setPreparedBy] = useState(PREPARED_BY_OPTIONS[0]);
   const [checkedBy, setCheckedBy] = useState(CHECKED_BY_OPTIONS[0]);
   const [notedBy, setNotedBy] = useState(NOTED_BY_OPTIONS[0]);
@@ -132,7 +124,6 @@ export default function MonthlyInspectionReport() {
   const handleImageUpload = (e, setter, isMultiple = false) => {
     const files = Array.from(e.target.files);
     if (files.length === 0) return;
-
     files.forEach(file => {
       const reader = new FileReader();
       reader.onload = (event) => {
@@ -168,7 +159,6 @@ export default function MonthlyInspectionReport() {
     setDraggingOver(null);
     const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
     if (files.length === 0) return;
-
     if (!isMultiple) {
       const dataUrl = await readFileAsDataURL(files[0]);
       setter(dataUrl);
@@ -195,9 +185,13 @@ export default function MonthlyInspectionReport() {
   const [pdfBlob, setPdfBlob] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
   const [lightboxImage, setLightboxImage] = useState(null);
-  const [lightboxMeta, setLightboxMeta] = useState(null); // { zone: 'equipment'|'speedtest', index: number }//for brightness and sharpness adjustments in lightbox
-  const [brightness, setBrightness] = useState(100);
-  const [sharpness, setSharpness] = useState(100);
+  const [lightboxMeta, setLightboxMeta] = useState(null);
+
+  // ── Image adjustment states: all start at 0 (center of bipolar slider) ──
+  const [brightness, setBrightness] = useState(0);
+  const [contrast, setContrast] = useState(0);
+  const [sharpness, setSharpness] = useState(0);
+  const [imageAdjustments, setImageAdjustments] = useState({});
 
   const [logoDataUrl, setLogoDataUrl] = useState(null);
   const [logoDataUrl2, setLogoDataUrl2] = useState(null);
@@ -230,14 +224,12 @@ export default function MonthlyInspectionReport() {
         setLoadingSites(true);
         const token = await getToken();
         if (!token) return;
-
         const res = await fetch("/api/sites", {
           headers: {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json'
           },
         });
-
         const data = await res.json();
         const normalized = (data.data || []).map(site => ({
           siteId: site.id || site.siteId || site.groupId || Math.random().toString(36),
@@ -245,7 +237,6 @@ export default function MonthlyInspectionReport() {
           vendor: site.vendor || "Unknown",
           groupId: site.groupId || site.siteId || site.id,
         }));
-
         setSites(normalized);
       } catch (err) {
         console.error(err);
@@ -255,21 +246,62 @@ export default function MonthlyInspectionReport() {
     }
     fetchSites();
   }, [getToken]);
-const applyImageAdjustments = (imageDataUrl, brightness, sharpness) => {//for brightness and sharpness adjustments in lightbox
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      canvas.width = img.width;
-      canvas.height = img.height;
-      const ctx = canvas.getContext('2d');
-      ctx.filter = `brightness(${brightness}%) contrast(${sharpness}%)`;
-      ctx.drawImage(img, 0, 0);
-      resolve(canvas.toDataURL('image/jpeg'));
-    };
-    img.src = imageDataUrl;
-  });
-};
+
+  // ── applyImageAdjustments: maps -100→100 bipolar values to CSS % ──
+  async function applyImageAdjustments(src, brightness, contrast, sharpness = 0) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext('2d');
+
+        // Map -100→100 to CSS %: 0 → 100%, +100 → 200%, -100 → 0%
+        const brightnessCSS = 100 + brightness;
+        const contrastCSS = 100 + contrast;
+
+        ctx.filter = `brightness(${brightnessCSS}%) contrast(${contrastCSS}%)`;
+        ctx.drawImage(img, 0, 0);
+        ctx.filter = 'none';
+
+        // Sharpness via unsharp mask convolution (positive = sharpen, negative = soften)
+        if (sharpness !== 0) {
+          const strength = (sharpness / 100) * 3;
+          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const srcData = imageData.data;
+          const output = new Uint8ClampedArray(srcData);
+          const w = canvas.width;
+          const h = canvas.height;
+          const kernel = [0, -strength, 0, -strength, 1 + 4 * strength, -strength, 0, -strength, 0];
+
+          for (let y = 1; y < h - 1; y++) {
+            for (let x = 1; x < w - 1; x++) {
+              for (let c = 0; c < 3; c++) {
+                const i = (y * w + x) * 4 + c;
+                output[i] = Math.min(255, Math.max(0,
+                  kernel[0] * srcData[((y - 1) * w + (x - 1)) * 4 + c] +
+                  kernel[1] * srcData[((y - 1) * w + x) * 4 + c] +
+                  kernel[2] * srcData[((y - 1) * w + (x + 1)) * 4 + c] +
+                  kernel[3] * srcData[(y * w + (x - 1)) * 4 + c] +
+                  kernel[4] * srcData[(y * w + x) * 4 + c] +
+                  kernel[5] * srcData[(y * w + (x + 1)) * 4 + c] +
+                  kernel[6] * srcData[((y + 1) * w + (x - 1)) * 4 + c] +
+                  kernel[7] * srcData[((y + 1) * w + x) * 4 + c] +
+                  kernel[8] * srcData[((y + 1) * w + (x + 1)) * 4 + c]
+                ));
+              }
+            }
+          }
+          ctx.putImageData(new ImageData(output, w, h), 0, 0);
+        }
+
+        resolve(canvas.toDataURL('image/jpeg', 0.92));
+      };
+      img.src = src;
+    });
+  }
+
   const handleGeneratePDF = (e) => {
     e.preventDefault();
     if (!selectedSite) return alert("Please select a site first");
@@ -310,23 +342,21 @@ const applyImageAdjustments = (imageDataUrl, brightness, sharpness) => {//for br
                 const y = data.cell.y + (data.cell.height - imgSize) / 2;
                 doc.addImage(logoDataUrl, 'PNG', x - 6, y, imgSize + 13, imgSize);
               }
-              if (data.column.index === 1) { //Header section with title and subtitle
-              const cell = data.cell;
-              const centerX = cell.x + cell.width / 2;
-              const centerY = cell.y + cell.height / 2;
-
-              doc.setTextColor(0, 0, 0); //  pure black
-              doc.setFont('Palatino', 'bold'); //  Palatino
-              doc.setFontSize(16);
-              doc.text('MONTHLY INSPECTION REPORT', centerX, centerY - 4, { align: 'center' });
-
-               doc.setTextColor(0, 0, 0); //  pure black
-               doc.setFont('Palatino', 'normal'); //  Palatino
-               doc.setFontSize(12);
-               const text = 'Provision Of Internet Connectivity Service (PICS)\nIn Public Places - Phase 2';
-               const splitText = doc.splitTextToSize(text, cell.width - 2);
-               doc.text(splitText, centerX, centerY + 2, { align: 'center' });
-                }
+              if (data.column.index === 1) {
+                const cell = data.cell;
+                const centerX = cell.x + cell.width / 2;
+                const centerY = cell.y + cell.height / 2;
+                doc.setTextColor(0, 0, 0);
+                doc.setFont('Palatino', 'bold');
+                doc.setFontSize(16);
+                doc.text('MONTHLY INSPECTION REPORT', centerX, centerY - 4, { align: 'center' });
+                doc.setTextColor(0, 0, 0);
+                doc.setFont('Palatino', 'normal');
+                doc.setFontSize(12);
+                const text = 'Provision Of Internet Connectivity Service (PICS)\nIn Public Places - Phase 2';
+                const splitText = doc.splitTextToSize(text, cell.width - 2);
+                doc.text(splitText, centerX, centerY + 2, { align: 'center' });
+              }
               if (data.column.index === 2 && logoDataUrl2) {
                 const imgSize = 20;
                 const x = data.cell.x + (data.cell.width - imgSize) / 2;
@@ -338,169 +368,101 @@ const applyImageAdjustments = (imageDataUrl, brightness, sharpness) => {//for br
         });
       };
 
-      // ── Updated drawFooter using selected signatories ──
       const drawFooter = () => {
-  const footerY = pageHeight - 55;
-  doc.setFontSize(10);
-  doc.setFont('Palatino', 'italic');
-  doc.text("Notes: Photos should have Geotagging (coordinates, date and time stamp)", 15, footerY);
+        const footerY = pageHeight - 55;
+        doc.setFontSize(10);
+        doc.setFont('Palatino', 'italic');
+        doc.text("Notes: Photos should have Geotagging (coordinates, date and time stamp)", 15, footerY);
 
-  const drawSignatory = (label, person, x, y, fixedLabelWidth = null) => {
-    doc.setFont('Palatino', 'normal');
-    const labelW = doc.getTextWidth(label);
-
-    // If fixedLabelWidth is provided, right-align the label
-    const actualLabelWidth = fixedLabelWidth ?? labelW;
-    doc.text(label, x + (actualLabelWidth - labelW), y);
-
-    // Name (bold)
-    doc.setFont('Palatino', 'bold');
-    doc.text(person.name, x + actualLabelWidth, y);
-
-    // Underline under name only
-    const nameWidth = doc.getTextWidth(person.name);
-    doc.setLineWidth(0.3);
-    doc.line(x + actualLabelWidth, y + 1, x + actualLabelWidth + nameWidth, y + 1);
-
-    // Roles centered under name
-    const nameCenterX = x + actualLabelWidth + nameWidth / 2;
-    doc.setFont('Palatino', 'normal');
-    person.lines.forEach((line, i) => {
-      const lineWidth = doc.getTextWidth(line);
-      doc.text(line, nameCenterX - lineWidth / 2, y + 5.5 + (i * 5));
-    });
-  };
-
-  const leftX = 15;
-  const rightX = pageWidth / 2 + 10;
-  const fixedWidth = 22; //  adjust to align colons of Checked by and Noted by
-
-  drawSignatory("Prepared by: ", preparedBy, leftX, footerY + 12); // no fixed width
-  drawSignatory("Checked by: ", checkedBy, rightX, footerY + 12, fixedWidth); // aligned
-  drawSignatory("Noted by: ", notedBy, rightX, footerY + 33, fixedWidth);     // aligned
-}; // ── Updated drawFooter using selected signatories ──
- 
-    //adding image with aspect ration
-     const addImageToPage = (imgData, x, y, maxWidth, maxHeight) => {
-  if (imgData) {
-    try {
-      const img = new Image();
-      img.src = imgData;
-      const naturalW = img.naturalWidth || maxWidth;
-      const naturalH = img.naturalHeight || maxHeight;
-      const ratio = naturalW / naturalH;
-
-      let drawW = maxWidth;
-      let drawH = maxWidth / ratio;
-
-      if (drawH > maxHeight) {
-        drawH = maxHeight;
-        drawW = maxHeight * ratio;
-      }
-
-      // Center the image in the cell
-      const offsetX = x + (maxWidth - drawW) / 2;
-      const offsetY = y + (maxHeight - drawH) / 2;
-
-      doc.addImage(imgData, 'JPEG', offsetX, offsetY, drawW, drawH);
-    } catch (error) {
-      console.warn("Error adding image to PDF", error);
-      doc.text("[Image Error]", x + maxWidth / 2, y + maxHeight / 2, { align: 'center' });
-    }
-  }
-};
-
-      const drawImageGrid = (images, startY, containerHeight) => {
-        const gap = 10;
-        const padding = 8;
-        const availableWidth = pageWidth - 30 - padding * 2;
-        const availableHeight = containerHeight - padding * 2;
-
-        if (images.length === 5) {
-          const rowHeight = (availableHeight - gap) / 2;
-          
-          const topRowY = startY + padding;
-          const topRowWidth = (availableWidth - gap) / 2;
-
-          addImageToPage(images[0], 15 + padding, topRowY, topRowWidth, rowHeight);
-          addImageToPage(images[1], 15 + padding + topRowWidth + gap, topRowY, topRowWidth, rowHeight);
-
-          const bottomRowY = startY + padding + rowHeight + gap;
-          const bottomRowWidth = (availableWidth - 2 * gap) / 3;
-
-          addImageToPage(images[2], 15 + padding, bottomRowY, bottomRowWidth, rowHeight);
-          addImageToPage(images[3], 15 + padding + bottomRowWidth + gap, bottomRowY, bottomRowWidth, rowHeight);
-          addImageToPage(images[4], 15 + padding + 2 * (bottomRowWidth + gap), bottomRowY, bottomRowWidth, rowHeight);
-
-        } else {
-          const cols = 2;
-          const rows = images.length <= 2 ? 1 : images.length <= 4 ? 2 : 3;
-          const cellWidth = (availableWidth - gap * (cols - 1)) / cols;
-          const cellHeight = (availableHeight - gap * (rows - 1)) / rows;
-
-          images.forEach((img, index) => {
-            if (index >= cols * rows) return;
-            const col = index % cols;
-            const row = Math.floor(index / cols);
-            const x = 15 + padding + col * (cellWidth + gap);
-            const y = startY + padding + row * (cellHeight + gap);
-            addImageToPage(img, x, y, cellWidth, cellHeight);
+        const drawSignatory = (label, person, x, y, fixedLabelWidth = null) => {
+          doc.setFont('Palatino', 'normal');
+          const labelW = doc.getTextWidth(label);
+          const actualLabelWidth = fixedLabelWidth ?? labelW;
+          doc.text(label, x + (actualLabelWidth - labelW), y);
+          doc.setFont('Palatino', 'bold');
+          doc.text(person.name, x + actualLabelWidth, y);
+          const nameWidth = doc.getTextWidth(person.name);
+          doc.setLineWidth(0.3);
+          doc.line(x + actualLabelWidth, y + 1, x + actualLabelWidth + nameWidth, y + 1);
+          const nameCenterX = x + actualLabelWidth + nameWidth / 2;
+          doc.setFont('Palatino', 'normal');
+          person.lines.forEach((line, i) => {
+            const lineWidth = doc.getTextWidth(line);
+            doc.text(line, nameCenterX - lineWidth / 2, y + 5.5 + (i * 5));
           });
+        };
+
+        const leftX = 15;
+        const rightX = pageWidth / 2 + 10;
+        const fixedWidth = 22;
+        drawSignatory("Prepared by: ", preparedBy, leftX, footerY + 12);
+        drawSignatory("Checked by: ", checkedBy, rightX, footerY + 12, fixedWidth);
+        drawSignatory("Noted by: ", notedBy, rightX, footerY + 33, fixedWidth);
+      };
+
+      const addImageToPage = (imgData, x, y, maxWidth, maxHeight) => {
+        if (imgData) {
+          try {
+            const img = new Image();
+            img.src = imgData;
+            const naturalW = img.naturalWidth || maxWidth;
+            const naturalH = img.naturalHeight || maxHeight;
+            const ratio = naturalW / naturalH;
+            let drawW = maxWidth;
+            let drawH = maxWidth / ratio;
+            if (drawH > maxHeight) {
+              drawH = maxHeight;
+              drawW = maxHeight * ratio;
+            }
+            const offsetX = x + (maxWidth - drawW) / 2;
+            const offsetY = y + (maxHeight - drawH) / 2;
+            doc.addImage(imgData, 'JPEG', offsetX, offsetY, drawW, drawH);
+          } catch (error) {
+            console.warn("Error adding image to PDF", error);
+            doc.text("[Image Error]", x + maxWidth / 2, y + maxHeight / 2, { align: 'center' });
+          }
         }
       };
 
-      
-  const draw2x2Grid = (images, startY, gridHeight, margin = 12.7) => {// for 2x2 grid layout in attachments with dynamic centering and spacing
-  const innerPadding = 6;
-  const gapX = 20;
-  const gapY = -11 ;
-
-  const totalWidth = pageWidth - margin * 2 - innerPadding * 2;
-  const totalHeight = gridHeight - innerPadding * 2;
-
-    const cellWidth = (totalWidth - gapX) / 2 - 15;
-  const cellHeight = (totalHeight - gapY) / 2 + 9;
-
-  // Center the entire grid horizontally inside the box
-  const gridTotalWidth = cellWidth * 2 + gapX;
-  const horizontalOffset = (totalWidth - gridTotalWidth) / 2;
-
-  // Center the entire grid vertically inside the box
-  const gridTotalHeight = cellHeight * 2 + gapY;
-  const verticalOffset = (totalHeight - gridTotalHeight) / 2;
-
-  const positions = [
-    { col: 0, row: 0 },
-    { col: 1, row: 0 },
-    { col: 0, row: 1 },
-    { col: 1, row: 1 },
-  ];
-
-  images.slice(0, 4).forEach((img, index) => {
-    const { col, row } = positions[index];
-    const x = margin + innerPadding + horizontalOffset + col * (cellWidth + gapX);
-    const y = startY + innerPadding + verticalOffset + row * (cellHeight + gapY);
-    addImageToPage(img, x, y, cellWidth, cellHeight);
-  });
-};
+      const draw2x2Grid = (images, startY, gridHeight, margin = 12.7) => {
+        const innerPadding = 6;
+        const gapX = 20;
+        const gapY = -11;
+        const totalWidth = pageWidth - margin * 2 - innerPadding * 2;
+        const totalHeight = gridHeight - innerPadding * 2;
+        const cellWidth = (totalWidth - gapX) / 2 - 15;
+        const cellHeight = (totalHeight - gapY) / 2 + 9;
+        const gridTotalWidth = cellWidth * 2 + gapX;
+        const horizontalOffset = (totalWidth - gridTotalWidth) / 2;
+        const gridTotalHeight = cellHeight * 2 + gapY;
+        const verticalOffset = (totalHeight - gridTotalHeight) / 2;
+        const positions = [
+          { col: 0, row: 0 },
+          { col: 1, row: 0 },
+          { col: 0, row: 1 },
+          { col: 1, row: 1 },
+        ];
+        images.slice(0, 4).forEach((img, index) => {
+          const { col, row } = positions[index];
+          const x = margin + innerPadding + horizontalOffset + col * (cellWidth + gapX);
+          const y = startY + innerPadding + verticalOffset + row * (cellHeight + gapY);
+          addImageToPage(img, x, y, cellWidth, cellHeight);
+        });
+      };
 
       // 1. TOP HEADER & PAGE 1 INFO
-     drawHeader();
-doc.setFontSize(12);
-
-// Provider Name
-doc.setFont('Palatino', 'normal');
-doc.text('Provider Name: ', 15, doc.lastAutoTable.finalY + 10);
-const providerLabelWidth = doc.getTextWidth('Provider Name: ');
-doc.setFont('Palatino', 'bold');
-doc.text('FREQ IT SOLUTIONS', 15 + providerLabelWidth, doc.lastAutoTable.finalY + 10);
-
-// Date Prepared
-const dateText = dayjs(reportDate).format('MMMM D, YYYY');
-doc.setFont('Palatino', 'normal');
-doc.text('Date Prepared: ', pageWidth - 15 - doc.getTextWidth('Date Prepared: ') - doc.getTextWidth(dateText), doc.lastAutoTable.finalY + 10);
-doc.setFont('Palatino', 'bold');
-doc.text(dateText, pageWidth - 15, doc.lastAutoTable.finalY + 10, { align: 'right' });
+      drawHeader();
+      doc.setFontSize(12);
+      doc.setFont('Palatino', 'normal');
+      doc.text('Provider Name: ', 15, doc.lastAutoTable.finalY + 10);
+      const providerLabelWidth = doc.getTextWidth('Provider Name: ');
+      doc.setFont('Palatino', 'bold');
+      doc.text('FREQ IT SOLUTIONS', 15 + providerLabelWidth, doc.lastAutoTable.finalY + 10);
+      const dateText = dayjs(reportDate).format('MMMM D, YYYY');
+      doc.setFont('Palatino', 'normal');
+      doc.text('Date Prepared: ', pageWidth - 15 - doc.getTextWidth('Date Prepared: ') - doc.getTextWidth(dateText), doc.lastAutoTable.finalY + 10);
+      doc.setFont('Palatino', 'bold');
+      doc.text(dateText, pageWidth - 15, doc.lastAutoTable.finalY + 10, { align: 'right' });
 
       // 2. MAIN DATA TABLE
       autoTable(doc, {
@@ -518,7 +480,7 @@ doc.text(dateText, pageWidth - 15, doc.lastAutoTable.finalY + 10, { align: 'righ
           [
             { content: '1', rowSpan: 4, styles: { valign: 'middle', halign: 'center', textColor: [0, 0, 0] } },
             { content: siteCode || 'N/A', rowSpan: 4, styles: { valign: 'middle', halign: 'center', textColor: [0, 0, 0] } },
-           { content: expandedSiteName?.toUpperCase() || 'N/A', rowSpan: 4, styles: { valign: 'middle', halign: 'center' } },//updated to call the expanded names
+            { content: expandedSiteName?.toUpperCase() || 'N/A', rowSpan: 4, styles: { valign: 'middle', halign: 'center' } },
             speedTests[0].down,
             speedTests[0].up,
             { content: `${contractedBandwidth} Mbps`, rowSpan: 4, styles: { valign: 'middle', halign: 'center', textColor: [0, 0, 0] } },
@@ -529,44 +491,43 @@ doc.text(dateText, pageWidth - 15, doc.lastAutoTable.finalY + 10, { align: 'righ
           [speedTests[3].down, speedTests[3].up],
         ],
         theme: 'grid',
-        //header and body styles
         headStyles: {
-        fillColor: [182, 210, 232],
-        textColor: [0, 0, 0],
-        fontStyle: 'bold',
-        font: 'Palatino', // 
-        halign: 'center',
-        valign: 'middle',
-        lineWidth: 0.1,
-        lineColor: [0, 0, 0],
-         fontSize: 11,  
+          fillColor: [182, 210, 232],
+          textColor: [0, 0, 0],
+          fontStyle: 'bold',
+          font: 'Palatino',
+          halign: 'center',
+          valign: 'middle',
+          lineWidth: 0.1,
+          lineColor: [0, 0, 0],
+          fontSize: 11,
         },
         bodyStyles: {
-        textColor: [0, 0, 0],
-         halign: 'center',
-        valign: 'middle',
-        font: 'Palatino', // 
-         fontStyle: 'bold',
+          textColor: [0, 0, 0],
+          halign: 'center',
+          valign: 'middle',
+          font: 'Palatino',
+          fontStyle: 'bold',
           fontSize: 11,
-        lineWidth: 0.1,
-         lineColor: [0, 0, 0]
+          lineWidth: 0.1,
+          lineColor: [0, 0, 0]
         },
         styles: {
-        fontSize: 8,
-        halign: 'center',
-         font: 'Palatino', // 
-        lineWidth: 0.1,
-        lineColor: [0, 0, 0]
+          fontSize: 8,
+          halign: 'center',
+          font: 'Palatino',
+          lineWidth: 0.1,
+          lineColor: [0, 0, 0]
         },
-       columnStyles: {
-  0: { halign: 'center', cellWidth: 12 }, // Item No. width
-  1: { halign: 'center', cellWidth: 35 }, // Location code width
-  2: { halign: 'left', cellWidth: 60 }, // Location name width table
-  5: { cellWidth: 18 }, // Contracted Bandwidth
-  6: { cellWidth: 18 } , // Remarks
-  3: { cellWidth: 19 }, // Downlink Bandwidth
-  4: { cellWidth: 19 }, // Uplink Bandwidth
-}
+        columnStyles: {
+          0: { halign: 'center', cellWidth: 12 },
+          1: { halign: 'center', cellWidth: 35 },
+          2: { halign: 'left', cellWidth: 60 },
+          5: { cellWidth: 18 },
+          6: { cellWidth: 18 },
+          3: { cellWidth: 19 },
+          4: { cellWidth: 19 },
+        }
       });
 
       drawFooter();
@@ -580,12 +541,10 @@ doc.text(dateText, pageWidth - 15, doc.lastAutoTable.finalY + 10, { align: 'righ
       doc.setFont('Palatino', 'bold');
       doc.text("ATTACHMENT 1: EQUIPMENT PHOTOS", pageWidth / 2, currentY, { align: 'center' });
       currentY += 5;
-
       const sectionHeight = 180;
       doc.setDrawColor(0);
       doc.setLineWidth(0.1);
       doc.rect(15, currentY, pageWidth - 30, sectionHeight);
-
       if (comboxImage) {
         addImageToPage(comboxImage, 15 + 15, currentY + 15, pageWidth - 60, sectionHeight - 40);
       } else {
@@ -595,38 +554,37 @@ doc.text(dateText, pageWidth - 15, doc.lastAutoTable.finalY + 10, { align: 'righ
 
       // 4. ATTACHMENT 1: ADDITIONAL PHOTOS
       if (additionalImages.length > 0) {
-  doc.addPage();
-  drawHeader();
-  drawFooter();
-  doc.setFontSize(11);
-  doc.setFont('Palatino', 'bold');
-  const titleY = 50;
-  doc.text("ATTACHMENT 1: EQUIPMENT PHOTOS (Access Points)", pageWidth / 2, titleY, { align: 'center' });
-  const gridStartY = titleY + 5;
-  const gridHeight = pageHeight - gridStartY - 65;
-  doc.rect(12.7, gridStartY, pageWidth - 12.7 * 2, gridHeight);
-  draw2x2Grid(additionalImages, gridStartY, gridHeight);
-}
+        doc.addPage();
+        drawHeader();
+        drawFooter();
+        doc.setFontSize(11);
+        doc.setFont('Palatino', 'bold');
+        const titleY = 50;
+        doc.text("ATTACHMENT 1: EQUIPMENT PHOTOS (Access Points)", pageWidth / 2, titleY, { align: 'center' });
+        const gridStartY = titleY + 5;
+        const gridHeight = pageHeight - gridStartY - 65;
+        doc.rect(12.7, gridStartY, pageWidth - 12.7 * 2, gridHeight);
+        draw2x2Grid(additionalImages, gridStartY, gridHeight);
+      }
 
       // 5. ATTACHMENT 2: BW TEST RESULTS
-     doc.addPage();
-drawHeader();
-drawFooter();
-doc.setFontSize(11);
-doc.setFont('Palatino', 'bold');
-const bwTitleY = 50;
-doc.text("ATTACHMENT 2: BANDWIDTH TEST RESULTS", pageWidth / 2, bwTitleY, { align: 'center' });
-const bwGridStartY = bwTitleY + 5;
-const bwGridHeight = pageHeight - bwGridStartY - 65;
-doc.rect(12.7, bwGridStartY, pageWidth - 12.7 * 2, bwGridHeight);
-
-if (speedtestImages.length > 0) {
-  draw2x2Grid(speedtestImages, bwGridStartY, bwGridHeight);
-} else {
-  doc.setFont('Palatino', 'italic');
-  doc.setFontSize(10);
-  doc.text("[No Speedtest Images Uploaded]", pageWidth / 2, bwGridStartY + bwGridHeight / 2, { align: 'center' });
-}
+      doc.addPage();
+      drawHeader();
+      drawFooter();
+      doc.setFontSize(11);
+      doc.setFont('Palatino', 'bold');
+      const bwTitleY = 50;
+      doc.text("ATTACHMENT 2: BANDWIDTH TEST RESULTS", pageWidth / 2, bwTitleY, { align: 'center' });
+      const bwGridStartY = bwTitleY + 5;
+      const bwGridHeight = pageHeight - bwGridStartY - 65;
+      doc.rect(12.7, bwGridStartY, pageWidth - 12.7 * 2, bwGridHeight);
+      if (speedtestImages.length > 0) {
+        draw2x2Grid(speedtestImages, bwGridStartY, bwGridHeight);
+      } else {
+        doc.setFont('Palatino', 'italic');
+        doc.setFontSize(10);
+        doc.text("[No Speedtest Images Uploaded]", pageWidth / 2, bwGridStartY + bwGridHeight / 2, { align: 'center' });
+      }
 
       // 6. ATTACHMENT 3: SITE PICTURES
       doc.addPage();
@@ -636,12 +594,9 @@ if (speedtestImages.length > 0) {
       doc.setFont('Palatino', 'bold');
       const siteTitleY = 50;
       doc.text("ATTACHMENT 3: SITE BENEFICIARY", pageWidth / 2, siteTitleY, { align: 'center' });
-
       const siteSectionY = siteTitleY + 5;
       doc.rect(15, siteSectionY, pageWidth - 30, sectionHeight);
-
       if (siteInspectionImage) {
-        const imageMargin = 8;
         addImageToPage(siteInspectionImage, 15 + 15, siteSectionY + 15, pageWidth - 60, sectionHeight - 40);
       } else {
         doc.setFont('Palatino', 'italic');
@@ -663,7 +618,6 @@ if (speedtestImages.length > 0) {
 
   const handleSavePDF = async () => {
     if (!pdfBlob) return;
-
     setIsSaving(true);
     try {
       const base64data = await new Promise((resolve, reject) => {
@@ -672,7 +626,6 @@ if (speedtestImages.length > 0) {
         reader.onerror = reject;
         reader.readAsDataURL(pdfBlob);
       });
-
       const token = await getToken();
       const res = await fetch('/api/reports/save', {
         method: 'POST',
@@ -687,9 +640,7 @@ if (speedtestImages.length > 0) {
           reportType: 'monthly_inspection'
         })
       });
-
       const data = await res.json();
-
       if (res.ok && data.success) {
         Swal.fire('Saved!', 'Report saved successfully to database.', 'success');
       } else {
@@ -703,17 +654,14 @@ if (speedtestImages.length > 0) {
     }
   };
 
-  // ── Navigate AP tabs with validation; go to Attachments after last AP ──
   const handleNextClick = () => {
     const currentTest = speedTests[activeSpeedTestTab];
     const missingDown = !currentTest.down;
     const missingUp = !currentTest.up;
-
     if (missingDown || missingUp) {
       const missing = [];
       if (missingDown) missing.push('Download');
       if (missingUp) missing.push('Upload');
-
       Swal.fire({
         icon: 'warning',
         title: `Missing AP ${activeSpeedTestTab + 1} Data`,
@@ -730,31 +678,25 @@ if (speedtestImages.length > 0) {
       });
       return;
     }
-
     if (activeSpeedTestTab < speedTests.length - 1) {
       setActiveSpeedTestTab(activeSpeedTestTab + 1);
       return;
     }
-
     setActiveSectionTab(1);
   };
 
-  // ── Reset all form fields when a new site is selected ──
   const handleSiteSelect = (id) => {
     setSelectedSite(id);
     setPdfUrl(null);
     setPdfBlob(null);
-
     setSpeedTests(Array(4).fill(null).map(() => ({ down: '', up: '' })));
     setActiveSpeedTestTab(0);
     setActiveSectionTab(0);
-
     setComboxImage(null);
     setAdditionalImages([]);
     setSpeedtestImages([]);
     setSiteInspectionImage(null);
-
-    // Reset signatories to defaults
+    setImageAdjustments({});
     setPreparedBy(PREPARED_BY_OPTIONS[0]);
     setCheckedBy(CHECKED_BY_OPTIONS[0]);
     setNotedBy(NOTED_BY_OPTIONS[0]);
@@ -836,7 +778,7 @@ if (speedtestImages.length > 0) {
                       </select>
                     </div>
 
-                    <div className="flex flex-col gap-1 ">
+                    <div className="flex flex-col gap-1">
                       <label className="text-sm text-gray-300">Noted by</label>
                       <select
                         value={notedBy.name}
@@ -850,10 +792,9 @@ if (speedtestImages.length > 0) {
                     </div>
                   </div>
 
-                  {/* ── Section Tabs: Speed Tests + Attachments ── */}
+                  {/* ── Section Tabs ── */}
                   <div className="rounded-2xl overflow-hidden border border-white/10 shadow-xl">
 
-                    {/* Top-level step indicators */}
                     <div className="flex border-b border-white/10 bg-black/30">
                       {[
                         {
@@ -1012,7 +953,6 @@ if (speedtestImages.length > 0) {
                         ))}
                       </div>
 
-                      {/* Next button */}
                       <div className="px-5 pb-5 pt-2">
                         <button
                           type="button"
@@ -1031,7 +971,6 @@ if (speedtestImages.length > 0) {
                     <div className={activeSectionTab === 1 ? 'block' : 'hidden'}>
                       <div className="bg-black/10 p-5 space-y-5">
 
-                        {/* Single-image row: Combox + Site Inspection */}
                         <div className="grid grid-cols-2 gap-4">
                           {/* Communication Box */}
                           <div className="rounded-xl border border-white/10 bg-white/5 overflow-hidden">
@@ -1146,15 +1085,22 @@ if (speedtestImages.length > 0) {
                                     <img src={img} alt={`${label} ${idx}`} className="w-full h-full object-cover" />
                                     <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
                                     <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                                    
-                      <button type="button" onClick={() => {// Open lightbox with selected image and adjustment of sharpness/brightness
-                      setLightboxImage(img);
-                        setLightboxMeta({ zone: zone === 'equipment' ? 'equipment' : 'speedtest', index: idx });
-                       setBrightness(100);
-                      setSharpness(100);
-                      }} className="w-8 h-8 bg-white/20 hover:bg-white/40 backdrop-blur-sm rounded-full flex items-center justify-center transition-all hover:scale-110">
-                      <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
-                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setLightboxImage(img);
+                                          setLightboxMeta({ zone: zone === 'equipment' ? 'equipment' : 'speedtest', index: idx });
+                                          // Load saved adjustments for this image, or defaults (0 = center)
+                                          const key = `${zone}-${idx}`;
+                                          const saved = imageAdjustments[key];
+                                          setBrightness(saved?.brightness ?? 0);
+                                          setContrast(saved?.contrast ?? 0);
+                                          setSharpness(saved?.sharpness ?? 0);
+                                        }}
+                                        className="w-8 h-8 bg-white/20 hover:bg-white/40 backdrop-blur-sm rounded-full flex items-center justify-center transition-all hover:scale-110"
+                                      >
+                                        <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                      </button>
                                       <button type="button" onClick={() => removeImage(idx, setter)} className="w-8 h-8 bg-red-500/80 hover:bg-red-500 backdrop-blur-sm rounded-full flex items-center justify-center transition-all hover:scale-110">
                                         <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                                       </button>
@@ -1188,6 +1134,7 @@ if (speedtestImages.length > 0) {
                           </div>
                         ))}
                       </div>
+
                       {/* Generate button */}
                       <div className="pt-2">
                         <button
@@ -1256,79 +1203,128 @@ if (speedtestImages.length > 0) {
           )}
         </div>
       </div>
+
+      {/* ── Image Editor Lightbox ── */}
       {lightboxImage && (
-  <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-    <div className="bg-gray-900 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-w-2xl w-full">
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-gray-950 border border-white/10 rounded-2xl shadow-2xl flex flex-col w-full max-w-3xl overflow-hidden">
 
-      {/* Image Preview */}
-      <div className="relative bg-black flex items-center justify-center" style={{ minHeight: 350 }}>
-        <img
-          src={lightboxImage}
-          alt="Preview"
-          className="max-w-full max-h-[400px] object-contain"
-          style={{
-            filter: lightboxMeta
-              ? `brightness(${brightness}%) contrast(${sharpness}%)`
-              : 'none'
-          }}
-        />
-      </div>
+            {/* SVG filter for sharpness */}
+            <svg width="0" height="0" style={{ position: 'absolute' }}>
+              <defs>
+                <filter id="sharpness-filter" x="0%" y="0%" width="100%" height="100%">
+                  <feConvolveMatrix
+                    order="3"
+                    kernelMatrix={
+                      sharpness === 0
+                        ? '0 0 0 0 1 0 0 0 0'
+                        : (() => {
+                            const k = (sharpness / 100) * 3;
+                            return `0 ${-k} 0 ${-k} ${1 + 4 * k} ${-k} 0 ${-k} 0`;
+                          })()
+                    }
+                    preserveAlpha="true"
+                  />
+                </filter>
+              </defs>
+            </svg>
 
-      {/* Controls - only for equipment and speedtest */}
-      {lightboxMeta && (
-        <div className="p-5 space-y-4 border-t border-white/10">
-          <div className="flex items-center gap-4">
-            <span className="text-xs text-gray-400 w-20 shrink-0">Brightness</span>
-            <input
-              type="range" min={50} max={200} value={brightness}
-              onChange={(e) => setBrightness(Number(e.target.value))}
-              className="flex-1 accent-yellow-400"
-            />
-            <span className="text-xs text-gray-300 w-8 text-right">{brightness}%</span>
-          </div>
-          <div className="flex items-center gap-4">
-            <span className="text-xs text-gray-400 w-20 shrink-0">Contrast</span>
-            <input
-              type="range" min={50} max={300} value={sharpness}
-              onChange={(e) => setSharpness(Number(e.target.value))}
-              className="flex-1 accent-blue-400"
-            />
-            <span className="text-xs text-gray-300 w-8 text-right">{sharpness}%</span>
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-3 border-b border-white/8">
+              <span className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Image Editor</span>
+              <button
+                type="button"
+                onClick={() => { setLightboxImage(null); setLightboxMeta(null); }}
+                className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-500 hover:text-white hover:bg-white/10 transition-all"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Image Preview */}
+            <div className="relative bg-black flex items-center justify-center" style={{ minHeight: 520 }}>
+               {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={lightboxImage}
+                alt="Preview"
+                className="max-w-full max-h-[640px] object-contain"
+                style={{
+                  filter: lightboxMeta
+                    ? `brightness(${100 + brightness}%) contrast(${100 + contrast}%) url(#sharpness-filter)`
+                    : 'none'
+                }}
+              />
+            </div>
+
+            {/* Sliders — bipolar -100 to +100, centered at 0 */}
+            {lightboxMeta && (
+              <div className="px-5 py-4 space-y-3 border-t border-white/8">
+                {[
+                  { label: 'Brightness', value: brightness, setter: setBrightness, color: '#facc15' },
+                  { label: 'Contrast',   value: contrast,   setter: setContrast,   color: '#60a5fa' },
+                  { label: 'Sharpness',  value: sharpness,  setter: setSharpness,  color: '#34d399' },
+                ].map(({ label, value, setter, color }) => (
+                  <div key={label} className="flex items-center gap-3">
+                    <span className="text-[11px] font-medium text-gray-500 w-20 shrink-0 uppercase tracking-wider">{label}</span>
+                    <input
+                      type="range" min={-100} max={100} step={1} value={value}
+                      onChange={(e) => setter(Number(e.target.value))}
+                      className="flex-1 h-1 rounded-full appearance-none bg-white/10 cursor-pointer"
+                      style={{ accentColor: color }}
+                    />
+                    <span className="text-xs tabular-nums text-gray-400 w-9 text-right">
+                      {value > 0 ? `+${value}` : value}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            <div className="flex items-center gap-2 px-7 py-4 border-t border-white/8">
+              <button
+                type="button"
+                onClick={() => { setLightboxImage(null); setLightboxMeta(null); }}
+                className="px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-xs font-medium text-gray-400 hover:text-white transition-all"
+              >
+                Cancel
+              </button>
+              {lightboxMeta && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => { setBrightness(0); setContrast(0); setSharpness(0); }}
+                    className="px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-xs font-medium text-amber-400 hover:text-amber-300 transition-all"
+                  >
+                    Restore
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const adjusted = await applyImageAdjustments(lightboxImage, brightness, contrast, sharpness);
+                      const key = `${lightboxMeta.zone}-${lightboxMeta.index}`;
+                      setImageAdjustments(prev => ({ ...prev, [key]: { brightness, contrast, sharpness } }));
+                      if (lightboxMeta.zone === 'equipment') {
+                        setAdditionalImages(prev => prev.map((img, i) => i === lightboxMeta.index ? adjusted : img));
+                      } else {
+                        setSpeedtestImages(prev => prev.map((img, i) => i === lightboxMeta.index ? adjusted : img));
+                      }
+                      setLightboxImage(null);
+                      setLightboxMeta(null);
+                    }}
+                    className="ml-auto px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-xs font-semibold text-white transition-all"
+                  >
+                    Apply & Save
+                  </button>
+                </>
+              )}
+            </div>
+
           </div>
         </div>
       )}
-
-      {/* Buttons */}
-      <div className="flex gap-3 p-4 border-t border-white/10">
-        <button
-          type="button"
-          onClick={() => { setLightboxImage(null); setLightboxMeta(null); }}
-          className="flex-1 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-sm text-gray-300 transition-all"
-        >
-          Cancel
-        </button>
-        {lightboxMeta && (
-          <button
-            type="button"
-            onClick={async () => {
-              const adjusted = await applyImageAdjustments(lightboxImage, brightness, sharpness);
-              if (lightboxMeta.zone === 'equipment') {
-                setAdditionalImages(prev => prev.map((img, i) => i === lightboxMeta.index ? adjusted : img));
-              } else {
-                setSpeedtestImages(prev => prev.map((img, i) => i === lightboxMeta.index ? adjusted : img));
-              }
-              setLightboxImage(null);
-              setLightboxMeta(null);
-            }}
-            className="flex-1 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-sm text-white font-semibold transition-all"
-          >
-            Apply & Save
-          </button>
-        )}
-      </div>
-    </div>
-  </div>
-)}
     </main>
   );
 }
