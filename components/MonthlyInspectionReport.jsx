@@ -539,7 +539,7 @@ doc.text(dateText, pageWidth - 15, doc.lastAutoTable.finalY + 10, { align: 'righ
         valign: 'middle',
         lineWidth: 0.1,
         lineColor: [0, 0, 0],
-         fontSize: 11,  
+         fontSize: 10.5,  
         },
         bodyStyles: {
         textColor: [0, 0, 0],
@@ -559,13 +559,13 @@ doc.text(dateText, pageWidth - 15, doc.lastAutoTable.finalY + 10, { align: 'righ
         lineColor: [0, 0, 0]
         },
        columnStyles: {
-  0: { halign: 'center', cellWidth: 12 }, // Item No. width
+  0: { halign: 'center', cellWidth: 11 }, // Item No. width
   1: { halign: 'center', cellWidth: 35 }, // Location code width
-  2: { halign: 'left', cellWidth: 60 }, // Location name width table
-  5: { cellWidth: 18 }, // Contracted Bandwidth
+  2: { halign: 'left', cellWidth: 55 }, // Location name width table
+  5: { cellWidth: 21 }, // Contracted Bandwidth
   6: { cellWidth: 18 } , // Remarks
-  3: { cellWidth: 19 }, // Downlink Bandwidth
-  4: { cellWidth: 19 }, // Uplink Bandwidth
+  3: { cellWidth: 21 }, // Downlink Bandwidth
+  4: { cellWidth: 21 }, // Uplink Bandwidth
 }
       });
 
