@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import SiteList from "@/components/SiteList";
 import { useAuth } from "@/hooks/useAuth";
 import jsPDF from "jspdf";
@@ -40,32 +40,22 @@ const base64ToBlob = (base64, type = "application/pdf") => {
 
 const parseSiteInfo = (fullSiteName) => {
   if (!fullSiteName) return { siteCode: '', siteName: fullSiteName };
-
   const trimmedName = fullSiteName.trim();
   const firstSpaceIndex = trimmedName.indexOf(' ');
-
   if (firstSpaceIndex > 0) {
     const potentialCode = trimmedName.substring(0, firstSpaceIndex);
     const potentialName = trimmedName.substring(firstSpaceIndex + 1);
-
     const isSiteCode = /^PICS-[A-Z0-9-]+$/i.test(potentialCode);
-
     if (isSiteCode) {
-      return {
-        siteCode: potentialCode,
-        siteName: potentialName
-      };
+      return { siteCode: potentialCode, siteName: potentialName };
     }
   }
-
   return { siteCode: '', siteName: trimmedName };
 };
-//for completing abbrevations
+
 const expandSiteType = (siteName) => {
   if (!siteName) return siteName;
-  
-  siteName = siteName.replace(/_/g, ' '); // for underscores in site names
-
+  siteName = siteName.replace(/_/g, ' ');
   const abbreviations = {
     'ES': 'Elementary School',
     'NHS': 'National High School',
@@ -73,7 +63,7 @@ const expandSiteType = (siteName) => {
     'MP': 'Municipal Plaza',
     'MH': 'Municipal Hall',
     'IS': 'Integrated School',
-    'CS': 'Central School' // added CS abbreviation for Central School
+    'CS': 'Central School',
   };
   const separators = ['', '-', ' ', '.'];
   let expandedName = siteName;
@@ -91,13 +81,10 @@ const expandSiteType = (siteName) => {
   return expandedName;
 };
 
-
-
-// ── Signatory options  ── // dropdowns that lets you select from predefined signatories instead of hardcoding them in the PDF generation logic. Each option includes the person's name and their associated lines (roles/titles) that will be printed under their name in the PDF.
 const PREPARED_BY_OPTIONS = [
-  { name: 'Engr. Jason Ilde Y. Aguihon', lines: ['Project Engineer'] },
-  { name: 'Engr. Eduardo Dela Cruz', lines: ['Project Engineer'] },
-]; 
+  { name: 'Engr. Jason Ilde Y. Aguihon, ETC', lines: ['Project Engineer'] },
+  { name: 'Engr. Eduardo M. Dela Cruz Jr, ECT', lines: ['Project Engineer'] },
+];
 
 const CHECKED_BY_OPTIONS = [
   { name: 'Engr. Cindy D. Camarines', lines: ['Engineer II, FPIAP', 'DICT Regional Office VIII'] },
@@ -108,6 +95,65 @@ const NOTED_BY_OPTIONS = [
   { name: 'Ms. Claire P. Fernandez', lines: ['Provincial Officer', 'DICT Leyte'] },
   { name: 'Engr. Edberto C. Versoza', lines: ['Provincial Officer', 'DICT Northern Samar'] },
 ];
+
+// ── Custom Dropdown Component ──
+function CustomSelect({ label, value, onChange, options }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    const handler = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const selected = options.find((o) => o.name === value);
+
+  return (
+    <div className="flex flex-col gap-1" ref={ref}>
+      <label className="text-sm text-gray-300">{label}</label>
+      <div className="relative">
+        <button
+          type="button"
+          onClick={() => setOpen((p) => !p)}
+          className="w-full flex items-center justify-between bg-white/5 border border-white/20 p-3 rounded-xl text-white text-left transition-colors hover:bg-white/10 focus:outline-none focus:border-white/40"
+        >
+          <span className="truncate text-sm">{selected?.name}</span>
+          <svg
+            className={`w-4 h-4 text-gray-400 transition-transform duration-200 shrink-0 ml-2 ${open ? 'rotate-180' : ''}`}
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+
+        {open && (
+          <ul className="absolute z-50 mt-2 w-full bg-gray-900 border border-white/20 rounded-xl overflow-hidden shadow-2xl shadow-black/50">
+            {options.map((o) => (
+              <li key={o.name}>
+                <button
+                  type="button"
+                  onClick={() => { onChange(o); setOpen(false); }}
+                  className={`w-full text-left px-4 py-2.5 text-sm transition-colors hover:bg-white/10
+                    ${o.name === value
+                      ? 'text-white bg-white/5 font-semibold'
+                      : 'text-gray-300 font-normal'
+                    }`}
+                >
+                  {o.name}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export default function MonthlyInspectionReport() {
   const [sites, setSites] = useState([]);
@@ -148,15 +194,78 @@ export default function MonthlyInspectionReport() {
   const [speedtestImages, setSpeedtestImages] = useState([]);
   const [siteInspectionImage, setSiteInspectionImage] = useState(null);
 
+  const handleImageUpload = (e, setter, isMultiple = false) => {
+    const files = Array.from(e.target.files);
+    if (files.length === 0) return;
+    files.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        if (isMultiple) {
+          setter(prev => {
+            if (prev.length >= 4) return prev;
+            return [...prev, event.target.result];
+          });
+        } else {
+          setter(event.target.result);
+        }
+      };
+      reader.readAsDataURL(file);
+    });
+    e.target.value = '';
+  };
+
   const removeImage = (index, setter) => {
     setter(prev => prev.filter((_, i) => i !== index));
   };
+
+  const [draggingOver, setDraggingOver] = useState(null);
+
+  const readFileAsDataURL = (file) =>
+    new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (e) => resolve(e.target.result);
+      reader.readAsDataURL(file);
+    });
+
+  const handleDrop = async (e, zone, setter, isMultiple = false) => {
+    e.preventDefault();
+    setDraggingOver(null);
+    const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+    if (files.length === 0) return;
+    if (!isMultiple) {
+      const dataUrl = await readFileAsDataURL(files[0]);
+      setter(dataUrl);
+    } else {
+      for (const file of files) {
+        const dataUrl = await readFileAsDataURL(file);
+        setter(prev => {
+          if (prev.length >= 4) return prev;
+          return [...prev, dataUrl];
+        });
+      }
+    }
+  };
+
+  const handleDragOver = (e, zone) => {
+    e.preventDefault();
+    setDraggingOver(zone);
+  };
+
+  const handleDragLeave = () => setDraggingOver(null);
 
   const [pdfUrl, setPdfUrl] = useState(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [pdfBlob, setPdfBlob] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
   const [lightboxImage, setLightboxImage] = useState(null);
+  const [lightboxMeta, setLightboxMeta] = useState(null);
+
+  const [brightness, setBrightness] = useState(0);
+  const [contrast, setContrast] = useState(0);
+  const [sharpness, setSharpness] = useState(0);
+  const [imageAdjustments, setImageAdjustments] = useState({});
+  const [geotags, setGeotags] = useState({});          // { "equipment-0": { address, coords, datetime }, … }
+  const [lightboxTab, setLightboxTab] = useState('edit');
 
   const [logoDataUrl, setLogoDataUrl] = useState(null);
   const [logoDataUrl2, setLogoDataUrl2] = useState(null);
@@ -189,14 +298,12 @@ export default function MonthlyInspectionReport() {
         setLoadingSites(true);
         const token = await getToken();
         if (!token) return;
-
         const res = await fetch("/api/sites", {
           headers: {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json'
           },
         });
-
         const data = await res.json();
         const normalized = (data.data || []).map(site => ({
           siteId: site.id || site.siteId || site.groupId || Math.random().toString(36),
@@ -204,7 +311,6 @@ export default function MonthlyInspectionReport() {
           vendor: site.vendor || "Unknown",
           groupId: site.groupId || site.siteId || site.id,
         }));
-
         setSites(normalized);
       } catch (err) {
         console.error(err);
@@ -276,13 +382,57 @@ export default function MonthlyInspectionReport() {
       Swal.fire('Error', 'Failed to load report data.', 'error');
     }
   };
+  async function applyImageAdjustments(src, brightness, contrast, sharpness = 0) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext('2d');
+        const brightnessCSS = 100 + brightness;
+        const contrastCSS = 100 + contrast;
+        ctx.filter = `brightness(${brightnessCSS}%) contrast(${contrastCSS}%)`;
+        ctx.drawImage(img, 0, 0);
+        ctx.filter = 'none';
+        if (sharpness !== 0) {
+          const strength = (sharpness / 100) * 3;
+          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const srcData = imageData.data;
+          const output = new Uint8ClampedArray(srcData);
+          const w = canvas.width;
+          const h = canvas.height;
+          const kernel = [0, -strength, 0, -strength, 1 + 4 * strength, -strength, 0, -strength, 0];
+          for (let y = 1; y < h - 1; y++) {
+            for (let x = 1; x < w - 1; x++) {
+              for (let c = 0; c < 3; c++) {
+                const i = (y * w + x) * 4 + c;
+                output[i] = Math.min(255, Math.max(0,
+                  kernel[0] * srcData[((y - 1) * w + (x - 1)) * 4 + c] +
+                  kernel[1] * srcData[((y - 1) * w + x) * 4 + c] +
+                  kernel[2] * srcData[((y - 1) * w + (x + 1)) * 4 + c] +
+                  kernel[3] * srcData[(y * w + (x - 1)) * 4 + c] +
+                  kernel[4] * srcData[(y * w + x) * 4 + c] +
+                  kernel[5] * srcData[(y * w + (x + 1)) * 4 + c] +
+                  kernel[6] * srcData[((y + 1) * w + (x - 1)) * 4 + c] +
+                  kernel[7] * srcData[((y + 1) * w + x) * 4 + c] +
+                  kernel[8] * srcData[((y + 1) * w + (x + 1)) * 4 + c]
+                ));
+              }
+            }
+          }
+          ctx.putImageData(new ImageData(output, w, h), 0, 0);
+        }
+        resolve(canvas.toDataURL('image/jpeg', 0.92));
+      };
+      img.src = src;
+    });
+  }
 
   const handleGeneratePDF = (e) => {
     e.preventDefault();
     if (!selectedSite) return alert("Please select a site first");
-
     setIsGenerating(true);
-
     try {
       const doc = new jsPDF('p', 'mm', 'a4');
       const siteInfo = sites.find(s => s.siteId === selectedSite);
@@ -345,7 +495,6 @@ export default function MonthlyInspectionReport() {
         });
       };
 
-      // ── Updated drawFooter using selected signatories ──
       const drawFooter = () => {
   const footerY = pageHeight - 55;
   doc.setFontSize(10);
@@ -387,45 +536,6 @@ export default function MonthlyInspectionReport() {
   drawSignatory("Noted by: ", notedBy, rightX, footerY + 33, fixedWidth);     // aligned
 }; // ── Updated drawFooter using selected signatories ──
  
-  const addImageToPage = (imgData, x, y, width, height) => {
-  if (!imgData) return;
-
-  try {
-    const props = doc.getImageProperties(imgData);
-    const imgW = props.width;
-    const imgH = props.height;
-
-    const slotRatio = width / height;
-    const imgRatio = imgW / imgH;
-
-    let drawW, drawH, drawX, drawY;
-
-    // "Contain" logic — fit the whole image inside the slot, preserving aspect ratio
-    if (imgRatio > slotRatio) {
-      // Image is wider than slot → fit by width
-      drawW = width;
-      drawH = width / imgRatio;
-    } else {
-      // Image is taller than slot → fit by height
-      drawH = height;
-      drawW = height * imgRatio;
-    }
-
-    // Center the image within the slot
-    drawX = x + (width - drawW) / 2;
-    drawY = y + (height - drawH) / 2;
-
-    doc.addImage(imgData, 'JPEG', drawX, drawY, drawW, drawH, undefined, 'FAST');
-
-    // Draw border around the full slot
-
-  } catch (error) {
-    console.warn("Error processing image for PDF:", error);
-    doc.setFontSize(8);
-    doc.text("[Image Error]", x + width / 2, y + height / 2, { align: 'center' });
-  }
-};
-
       const drawImageGrid = (images, startY, containerHeight) => {
         const gap = 10;
         const padding = 8;
@@ -462,6 +572,36 @@ export default function MonthlyInspectionReport() {
             const y = startY + padding + row * (cellHeight + gap);
             addImageToPage(img?.url, x, y, cellWidth, cellHeight);
           });
+        };
+        const leftX = 15;
+        const rightX = pageWidth / 2 + 10;
+        const fixedWidth = 22;
+        drawSignatory("Prepared by: ", preparedBy, leftX, footerY + 12);
+        drawSignatory("Checked by: ", checkedBy, rightX, footerY + 12, fixedWidth);
+        drawSignatory("Noted by: ", notedBy, rightX, footerY + 33, fixedWidth);
+      };
+
+      const addImageToPage = (imgData, x, y, maxWidth, maxHeight) => {
+        if (imgData) {
+          try {
+            const img = new Image();
+            img.src = imgData;
+            const naturalW = img.naturalWidth || maxWidth;
+            const naturalH = img.naturalHeight || maxHeight;
+            const ratio = naturalW / naturalH;
+            let drawW = maxWidth;
+            let drawH = maxWidth / ratio;
+            if (drawH > maxHeight) {
+              drawH = maxHeight;
+              drawW = maxHeight * ratio;
+            }
+            const offsetX = x + (maxWidth - drawW) / 2;
+            const offsetY = y + (maxHeight - drawH) / 2;
+            doc.addImage(imgData, 'JPEG', offsetX, offsetY, drawW, drawH);
+          } catch (error) {
+            console.warn("Error adding image to PDF", error);
+            doc.text("[Image Error]", x + maxWidth / 2, y + maxHeight / 2, { align: 'center' });
+          }
         }
       };
 
@@ -631,7 +771,6 @@ export default function MonthlyInspectionReport() {
 
       const siteSectionY = siteTitleY + 5;
       doc.rect(15, siteSectionY, pageWidth - 30, sectionHeight);
-
       if (siteInspectionImage) {
         const imageMargin = 8;
         addImageToPage(siteInspectionImage.url, 15 + 15, siteSectionY + 15, pageWidth - 60, sectionHeight - 40);
@@ -655,7 +794,6 @@ export default function MonthlyInspectionReport() {
 
   const handleSavePDF = async () => {
     if (!pdfBlob) return;
-
     setIsSaving(true);
     try {
       const base64data = await new Promise((resolve, reject) => {
@@ -664,7 +802,6 @@ export default function MonthlyInspectionReport() {
         reader.onerror = reject;
         reader.readAsDataURL(pdfBlob);
       });
-
       const token = await getToken();
       const res = await fetch('/api/reports/monthly', {
         method: 'POST',
@@ -687,9 +824,7 @@ export default function MonthlyInspectionReport() {
           }
         })
       });
-
       const data = await res.json();
-
       if (res.ok && data.success) {
         Swal.fire('Saved!', 'Report saved successfully to database.', 'success');
         fetchHistory();
@@ -704,17 +839,14 @@ export default function MonthlyInspectionReport() {
     }
   };
 
-  // ── Navigate AP tabs with validation; go to Attachments after last AP ──
   const handleNextClick = () => {
     const currentTest = speedTests[activeSpeedTestTab];
     const missingDown = !currentTest.down;
     const missingUp = !currentTest.up;
-
     if (missingDown || missingUp) {
       const missing = [];
       if (missingDown) missing.push('Download');
       if (missingUp) missing.push('Upload');
-
       Swal.fire({
         icon: 'warning',
         title: `Missing AP ${activeSpeedTestTab + 1} Data`,
@@ -731,31 +863,25 @@ export default function MonthlyInspectionReport() {
       });
       return;
     }
-
     if (activeSpeedTestTab < speedTests.length - 1) {
       setActiveSpeedTestTab(activeSpeedTestTab + 1);
       return;
     }
-
     setActiveSectionTab(1);
   };
 
-  // ── Reset all form fields when a new site is selected ──
   const handleSiteSelect = (id) => {
     setSelectedSite(id);
     setPdfUrl(null);
     setPdfBlob(null);
-
     setSpeedTests(Array(4).fill(null).map(() => ({ down: '', up: '' })));
     setActiveSpeedTestTab(0);
     setActiveSectionTab(0);
-
     setComboxImage(null);
     setAdditionalImages([]);
     setSpeedtestImages([]);
     setSiteInspectionImage(null);
-
-    // Reset signatories to defaults
+    setImageAdjustments({});
     setPreparedBy(PREPARED_BY_OPTIONS[0]);
     setCheckedBy(CHECKED_BY_OPTIONS[0]);
     setNotedBy(NOTED_BY_OPTIONS[0]);
@@ -841,51 +967,32 @@ export default function MonthlyInspectionReport() {
                       <input type="text" value={contractedBandwidth} onChange={(e) => setContractedBandwidth(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()} className="bg-white/5 border border-white/20 p-3 rounded-xl outline-none" />
                     </div>
 
-                    {/* ── Signatory Dropdowns ── */}
-                    <div className="flex flex-col gap-1">
-                      <label className="text-sm text-gray-300">Prepared by</label>
-                      <select
-                        value={preparedBy.name}
-                        onChange={(e) => setPreparedBy(PREPARED_BY_OPTIONS.find(o => o.name === e.target.value))}
-                        className="bg-white/5 border border-white/20 p-3 rounded-xl outline-none text-white"
-                      >
-                        {PREPARED_BY_OPTIONS.map(o => (
-                          <option key={o.name} value={o.name} className="bg-gray-800 text-white">{o.name}</option>
-                        ))}
-                      </select>
-                    </div>
+                    {/* ── Signatory Custom Dropdowns ── */}
+                    <CustomSelect
+                      label="Prepared by"
+                      value={preparedBy.name}
+                      onChange={setPreparedBy}
+                      options={PREPARED_BY_OPTIONS}
+                    />
 
-                    <div className="flex flex-col gap-1">
-                      <label className="text-sm text-gray-300">Checked by</label>
-                      <select
-                        value={checkedBy.name}
-                        onChange={(e) => setCheckedBy(CHECKED_BY_OPTIONS.find(o => o.name === e.target.value))}
-                        className="bg-white/5 border border-white/20 p-3 rounded-xl outline-none text-white"
-                      >
-                        {CHECKED_BY_OPTIONS.map(o => (
-                          <option key={o.name} value={o.name} className="bg-gray-800 text-white">{o.name}</option>
-                        ))}
-                      </select>
-                    </div>
+                    <CustomSelect
+                      label="Checked by"
+                      value={checkedBy.name}
+                      onChange={setCheckedBy}
+                      options={CHECKED_BY_OPTIONS}
+                    />
 
-                    <div className="flex flex-col gap-1 md:col-span-2">
-                      <label className="text-sm text-gray-300">Noted by</label>
-                      <select
-                        value={notedBy.name}
-                        onChange={(e) => setNotedBy(NOTED_BY_OPTIONS.find(o => o.name === e.target.value))}
-                        className="bg-white/5 border border-white/20 p-3 rounded-xl outline-none text-white"
-                      >
-                        {NOTED_BY_OPTIONS.map(o => (
-                          <option key={o.name} value={o.name} className="bg-gray-800 text-white">{o.name}</option>
-                        ))}
-                      </select>
-                    </div>
+                    <CustomSelect
+                      label="Noted by"
+                      value={notedBy.name}
+                      onChange={setNotedBy}
+                      options={NOTED_BY_OPTIONS}
+                    />
                   </div>
 
-                  {/* ── Section Tabs: Speed Tests + Attachments ── */}
+                  {/* ── Section Tabs ── */}
                   <div className="rounded-2xl overflow-hidden border border-white/10 shadow-xl">
 
-                    {/* Top-level step indicators */}
                     <div className="flex border-b border-white/10 bg-black/30">
                       {[
                         {
@@ -1056,7 +1163,6 @@ export default function MonthlyInspectionReport() {
                         ))}
                       </div>
 
-                      {/* Next button */}
                       <div className="px-5 pb-5 pt-2">
                         <button
                           type="button"
@@ -1074,7 +1180,6 @@ export default function MonthlyInspectionReport() {
                     {/* ── Panel 1: Attachments ── */}
                     <div className={activeSectionTab === 1 ? 'block' : 'hidden'}>
                       <div className="bg-black/10 p-5 space-y-5">
-                        {/* Single-image row: Combox + Site Inspection */}
                         <div className="grid grid-cols-2 gap-4">
                           {/* Communication Box */}
                           <div className="rounded-xl border border-white/10 bg-white/5 overflow-hidden">
@@ -1171,7 +1276,19 @@ export default function MonthlyInspectionReport() {
                                     <img src={img.url} alt={`${label} ${idx}`} className="w-full h-full object-cover" />
                                     <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
                                     <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                                      <button type="button" onClick={() => setLightboxImage(img.url)} className="w-8 h-8 bg-white/20 hover:bg-white/40 backdrop-blur-sm rounded-full flex items-center justify-center transition-all hover:scale-110">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                     setLightboxImage(img.url);  // Open lightbox with the selected image
+                                     setLightboxMeta({ zone: zone === 'equipment' ? 'equipment' : 'speedtest', index: idx });
+                                      const key = `${zone}-${idx}`;
+                                      const saved = imageAdjustments[key];
+                                      setBrightness(saved?.brightness ?? 0);
+                                     setContrast(saved?.contrast ?? 0);
+                                       setSharpness(saved?.sharpness ?? 0);
+                                        }}
+                                        className="w-8 h-8 bg-white/20 hover:bg-white/40 backdrop-blur-sm rounded-full flex items-center justify-center transition-all hover:scale-110"
+                                      >
                                         <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
                                       </button>
                                       <button type="button" onClick={() => removeImage(idx, setter)} className="w-8 h-8 bg-red-500/80 hover:bg-red-500 backdrop-blur-sm rounded-full flex items-center justify-center transition-all hover:scale-110">
@@ -1202,6 +1319,7 @@ export default function MonthlyInspectionReport() {
                           </div>
                         ))}
                       </div>
+
                       {/* Generate button */}
                       <div className="pt-2">
                         <button
@@ -1270,17 +1388,126 @@ export default function MonthlyInspectionReport() {
           )}
         </div>
       </div>
+
+      {/* ── Image Editor Lightbox ── */}
       {lightboxImage && (
-        <div
-          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
-          onClick={() => setLightboxImage(null)}
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={lightboxImage}
-            alt="Preview"
-            className="max-w-full max-h-full object-contain rounded-xl shadow-2xl"
-          />
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-gray-950 border border-white/10 rounded-2xl shadow-2xl flex flex-col w-full max-w-3xl overflow-hidden">
+
+            {/* SVG filter for sharpness */}
+            <svg width="0" height="0" style={{ position: 'absolute' }}>
+              <defs>
+                <filter id="sharpness-filter" x="0%" y="0%" width="100%" height="100%">
+                  <feConvolveMatrix
+                    order="3"
+                    kernelMatrix={
+                      sharpness === 0
+                        ? '0 0 0 0 1 0 0 0 0'
+                        : (() => {
+                            const k = (sharpness / 100) * 3;
+                            return `0 ${-k} 0 ${-k} ${1 + 4 * k} ${-k} 0 ${-k} 0`;
+                          })()
+                    }
+                    preserveAlpha="true"
+                  />
+                </filter>
+              </defs>
+            </svg>
+
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-3 border-b border-white/8">
+              <span className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Image Editor</span>
+              <button
+                type="button"
+                onClick={() => { setLightboxImage(null); setLightboxMeta(null); }}
+                className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-500 hover:text-white hover:bg-white/10 transition-all"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Image Preview */}
+            <div className="relative bg-black flex items-center justify-center" style={{ minHeight: 380 }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={lightboxImage}
+                alt="Preview"
+                className="max-w-full max-h-[480px] object-contain"
+                style={{
+                  filter: lightboxMeta
+                    ? `brightness(${100 + brightness}%) contrast(${100 + contrast}%) url(#sharpness-filter)`
+                    : 'none'
+                }}
+              />
+            </div>
+
+            {/* Sliders */}
+            {lightboxMeta && (
+              <div className="px-5 py-4 space-y-3 border-t border-white/8">
+                {[
+                  { label: 'Brightness', value: brightness, setter: setBrightness, color: '#facc15' },
+                  { label: 'Contrast',   value: contrast,   setter: setContrast,   color: '#60a5fa' },
+                  { label: 'Sharpness',  value: sharpness,  setter: setSharpness,  color: '#34d399' },
+                ].map(({ label, value, setter, color }) => (
+                  <div key={label} className="flex items-center gap-3">
+                    <span className="text-[11px] font-medium text-gray-500 w-20 shrink-0 uppercase tracking-wider">{label}</span>
+                    <input
+                      type="range" min={-100} max={100} step={1} value={value}
+                      onChange={(e) => setter(Number(e.target.value))}
+                      className="flex-1 h-1 rounded-full appearance-none bg-white/10 cursor-pointer"
+                      style={{ accentColor: color }}
+                    />
+                    <span className="text-xs tabular-nums text-gray-400 w-9 text-right">
+                      {value > 0 ? `+${value}` : value}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            <div className="flex items-center gap-2 px-7 py-4 border-t border-white/8">
+              <button
+                type="button"
+                onClick={() => { setLightboxImage(null); setLightboxMeta(null); }}
+                className="px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-xs font-medium text-gray-400 hover:text-white transition-all"
+              >
+                Cancel
+              </button>
+              {lightboxMeta && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => { setBrightness(0); setContrast(0); setSharpness(0); }}
+                    className="px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-xs font-medium text-amber-400 hover:text-amber-300 transition-all"
+                  >
+                    Restore
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const adjusted = await applyImageAdjustments(lightboxImage, brightness, contrast, sharpness);
+                      const key = `${lightboxMeta.zone}-${lightboxMeta.index}`;
+                      setImageAdjustments(prev => ({ ...prev, [key]: { brightness, contrast, sharpness } }));
+                      if (lightboxMeta.zone === 'equipment') {
+                        setAdditionalImages(prev => prev.map((img, i) => i === lightboxMeta.index ? { ...img, url: adjusted } : img));
+                      } else {
+                        setSpeedtestImages(prev => prev.map((img, i) => i === lightboxMeta.index ? { ...img, url: adjusted } : img));
+                      }
+                      setLightboxImage(null);
+                      setLightboxMeta(null);
+                    }}
+                    className="ml-auto px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-xs font-semibold text-white transition-all"
+                  >
+                    Apply & Save
+                  </button>
+                </>
+              )}
+            </div>
+
+          </div>
         </div>
       )}
 
