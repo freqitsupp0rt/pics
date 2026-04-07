@@ -1,0 +1,45 @@
+name: Remote Deploy
+on:
+  push:
+    branches: [ pics ]
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Deploy to VPS
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_IP }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.PORT }}
+          timeout: 60s
+          command_timeout: 20m
+          script: |
+            cd /srv/pics-nms
+            
+            # 1. Initialize Git if the folder is just loose files
+            if [ ! -d .git ]; then
+              git init
+              git remote add origin git@github.com:freqitsupp0rt/pics.git
+            fi
+            
+            # 2. Sync with the 'pics' branch
+            git fetch origin pics
+            git reset --hard origin/pics
+            
+            # 3. Clean Build
+            npm install
+            rm -rf .next
+            npm run build
+            
+            # 4. Restart with path enforcement
+            pm2 restart pics --update-env --cwd /srv/pics-nms
+            pm2 save

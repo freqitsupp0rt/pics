@@ -1,0 +1,7 @@
+# Ignore environment variables
+.env
+*.pem
+
+# Ignore dependencies and build artifacts
+node_modules/
+.next
