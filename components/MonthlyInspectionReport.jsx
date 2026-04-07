@@ -123,14 +123,11 @@ function CustomSelect({ label, value, onChange, options }) {
           <span className="truncate text-sm">{selected?.name}</span>
           <svg
             className={`w-4 h-4 text-gray-400 transition-transform duration-200 shrink-0 ml-2 ${open ? 'rotate-180' : ''}`}
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
+            fill="none" stroke="currentColor" viewBox="0 0 24 24"
           >
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
           </svg>
         </button>
-
         {open && (
           <ul className="absolute z-50 mt-2 w-full bg-gray-900 border border-white/20 rounded-xl overflow-hidden shadow-2xl shadow-black/50">
             {options.map((o) => (
@@ -139,10 +136,7 @@ function CustomSelect({ label, value, onChange, options }) {
                   type="button"
                   onClick={() => { onChange(o); setOpen(false); }}
                   className={`w-full text-left px-4 py-2.5 text-sm transition-colors hover:bg-white/10
-                    ${o.name === value
-                      ? 'text-white bg-white/5 font-semibold'
-                      : 'text-gray-300 font-normal'
-                    }`}
+                    ${o.name === value ? 'text-white bg-white/5 font-semibold' : 'text-gray-300 font-normal'}`}
                 >
                   {o.name}
                 </button>
@@ -151,6 +145,225 @@ function CustomSelect({ label, value, onChange, options }) {
           </ul>
         )}
       </div>
+    </div>
+  );
+}
+
+// ── Geotag stamp renderer  ──
+async function stampGeotag(srcDataUrl, geotag, pinDataUrl = null) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width  = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+
+      const W = canvas.width;
+      const H = canvas.height;
+
+      const addr1 = geotag.addr1 || '';
+      const addr2 = geotag.addr2 || '';
+      const lat   = geotag.lat   || '';
+      const lng   = geotag.lng   || '';
+      const date  = geotag.date  || '';
+      const time  = geotag.time  || '';
+
+      const coordLine = lat || lng ? `Lat ${lat}  Long ${lng}` : '';
+      const dateLine  = [date, time].filter(Boolean).join('  ');
+      const lines     = [addr1, addr2, coordLine, dateLine].filter(Boolean);
+
+      if (lines.length === 0) { resolve(canvas.toDataURL('image/jpeg', 0.93)); return; }
+
+      const scale     = W / 400;
+      const fontSize  = Math.round(14 * scale);
+      const lineH     = fontSize * 1.5;
+      const padV      = Math.round(10 * scale);
+      const padH      = Math.round(12 * scale);
+      const iconSize  = Math.round(70 * scale);
+      const smallFont = Math.max(8, Math.round(8 * scale));
+
+      const textX  = padH * 2 + iconSize + padH;
+      const stampH = padV * 2 + lines.length * lineH;
+      const boxY   = H - stampH;
+
+      const drawStamp = (customPin) => {
+        // Black background
+        ctx.globalAlpha = 1;
+        ctx.fillStyle   = '#000000';
+        ctx.fillRect(0, boxY, W, stampH);
+
+        // White rounded icon box
+        const iconX = padH;
+        const iconY = boxY + (stampH - iconSize) / 2;
+        const r     = Math.max(3, Math.round(iconSize * 0.1));
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.roundRect(iconX, iconY, iconSize, iconSize, r);
+        ctx.fill();
+
+          if (customPin) {
+            const overflow = iconSize * 0.4;
+            ctx.drawImage(customPin, iconX - overflow / 2, iconY - overflow / 2, iconSize + overflow, iconSize + overflow);
+          } else {
+          // Default red map pin
+          const pinR  = iconSize * 0.67;
+          const pinCX = iconX + iconSize / 2;
+          const pinCY = iconY + iconSize * 0.44;
+
+          ctx.fillStyle = '#e53935';
+          ctx.beginPath();
+          ctx.arc(pinCX, pinCY, pinR, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.fillStyle = '#ffffff';
+          ctx.beginPath();
+          ctx.arc(pinCX, pinCY, pinR * 0.42, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.fillStyle = '#e53935';
+          ctx.beginPath();
+          ctx.moveTo(pinCX - pinR * 0.65, pinCY + pinR * 0.45);
+          ctx.lineTo(pinCX + pinR * 0.65, pinCY + pinR * 0.45);
+          ctx.lineTo(pinCX, iconY + iconSize * 0.71);
+          ctx.closePath();
+          ctx.fill();
+        }
+
+        // Text lines
+        ctx.textAlign    = 'left';
+        ctx.textBaseline = 'alphabetic';
+        lines.forEach((line, i) => {
+          const y = boxY + padV + lineH * i + fontSize;
+          if (i === 0) {
+            ctx.font      = `bold ${fontSize}px Candara, Candara Regular, sans-serif`;
+            ctx.fillStyle = '#ffffff';
+          } else {
+            ctx.font      = `${Math.round(fontSize * 0.88)}px Candara, Candara Regular, sans-serif`;
+            ctx.fillStyle = '#dddddd';
+          }
+          const maxW = W - textX - padH;
+          let txt = line;
+          while (ctx.measureText(txt).width > maxW && txt.length > 4) txt = txt.slice(0, -1);
+          if (txt !== line) txt += '…';
+          ctx.fillText(txt, textX, y);
+        });
+
+        resolve(canvas.toDataURL('image/jpeg', 0.93));
+      };
+
+      if (pinDataUrl) {
+        const pinImg = new Image();
+        pinImg.onload  = () => drawStamp(pinImg);
+        pinImg.onerror = () => drawStamp(null);
+        pinImg.src = pinDataUrl;
+      } else {
+        drawStamp(null);
+      }
+    };
+    img.src = srcDataUrl;
+  });
+}
+
+// ── Per-image geotag fields — defined OUTSIDE the main component so it never
+//    gets recreated on parent re-renders, which would cause inputs to lose focus ──
+function GeotageFields({ imgKey, geotag, geoAddr1, geoAddr2, geoDate, onUpdate }) {
+  return (
+    <div className="space-y-3">
+      <p className="text-[11px] text-gray-500 uppercase tracking-wider font-semibold mb-1">Per-image fields</p>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="flex flex-col gap-1">
+          <label className="text-[11px] text-gray-400 uppercase tracking-wider">Latitude</label>
+          <input
+            type="text"
+            placeholder="e.g. 11.2276471"
+            value={geotag.lat || ''}
+            onChange={e => onUpdate(imgKey, 'lat', e.target.value)}
+            className="bg-white/5 border border-white/15 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-blue-500/60 placeholder-gray-600"
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-[11px] text-gray-400 uppercase tracking-wider">Longitude</label>
+          <input
+            type="text"
+            placeholder="e.g. 125.0239258"
+            value={geotag.lng || ''}
+            onChange={e => onUpdate(imgKey, 'lng', e.target.value)}
+            className="bg-white/5 border border-white/15 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-blue-500/60 placeholder-gray-600"
+          />
+        </div>
+      </div>
+      <div className="flex flex-col gap-1">
+        <label className="text-[11px] text-gray-400 uppercase tracking-wider">Time</label>
+        <input
+          type="text"
+          placeholder="e.g. 08:27 AM"
+          value={geotag.time || ''}
+          onChange={e => onUpdate(imgKey, 'time', e.target.value)}
+          className="bg-white/5 border border-white/15 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-blue-500/60 placeholder-gray-600"
+        />
+      </div>
+
+      {/* ── Pin icon upload ── */}
+      <div className="flex flex-col gap-1">
+        <label className="text-[11px] text-gray-400 uppercase tracking-wider">Map Pin Icon</label>
+        <div className="flex items-center gap-3">
+          {/* Preview / placeholder box */}
+          <div className="w-12 h-12 rounded-lg border border-white/15 bg-white/5 flex items-center justify-center overflow-hidden shrink-0">
+            {geotag.pinDataUrl ? (
+              <img src={geotag.pinDataUrl} alt="Pin" className="w-full h-full object-contain" />
+            ) : (
+              <svg className="w-6 h-6 text-gray-600" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
+              </svg>
+            )}
+          </div>
+          <div className="flex flex-col gap-1.5 flex-1">
+            <label className="cursor-pointer flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 border border-white/15 hover:bg-white/10 hover:border-white/25 transition-all text-xs text-gray-300">
+              <svg className="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+              </svg>
+              {geotag.pinDataUrl ? 'Replace icon' : 'Upload icon'}
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={e => {
+                  const file = e.target.files[0];
+                  if (!file) return;
+                  const reader = new FileReader();
+                  reader.onload = (ev) => onUpdate(imgKey, 'pinDataUrl', ev.target.result);
+                  reader.readAsDataURL(file);
+                  e.target.value = '';
+                }}
+              />
+            </label>
+            {geotag.pinDataUrl && (
+              <button
+                type="button"
+                onClick={() => onUpdate(imgKey, 'pinDataUrl', null)}
+                className="px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/20 hover:bg-red-500/20 transition-all text-xs text-red-400 text-left"
+              >
+                Remove — use default pin
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+{/* 
+      <div className="mt-2 rounded-lg bg-white/3 border border-white/8 px-3 py-2">
+        <p className="text-[10px] text-gray-600 uppercase tracking-wider mb-1">Preview stamp text</p>
+        <p className="text-xs text-gray-300 leading-relaxed">
+          {geoAddr1 && <span className="block font-semibold text-white">{geoAddr1}</span>}
+          {geoAddr2 && <span className="block">{geoAddr2}</span>}
+          {(geotag.lat || geotag.lng) && <span className="block">Lat {geotag.lat} Long {geotag.lng}</span>}
+          {(geoDate || geotag.time) && <span className="block">{geoDate}{geotag.time ? ` ${geotag.time}` : ''}</span>}
+          {!geoAddr1 && !geoAddr2 && !geotag.lat && !geotag.lng && !geoDate && !geotag.time &&
+            <span className="text-gray-600 italic">Fill global address fields and per-image coordinates above.</span>
+          }
+        </p>
+      </div> */}
     </div>
   );
 }
@@ -177,12 +390,27 @@ export default function MonthlyInspectionReport() {
 
   // Gallery Modal States
   const [showGalleryModal, setShowGalleryModal] = useState(false);
-  const [assigningTarget, setAssigningTarget] = useState(null); // { type: string, label: string }
+  const [assigningTarget, setAssigningTarget] = useState(null);
 
   // ── Signatory state ──
   const [preparedBy, setPreparedBy] = useState(PREPARED_BY_OPTIONS[0]);
   const [checkedBy, setCheckedBy] = useState(CHECKED_BY_OPTIONS[0]);
   const [notedBy, setNotedBy] = useState(NOTED_BY_OPTIONS[0]);
+
+  // ── Global Geotag state ──
+  const [geoAddr1, setGeoAddr1] = useState('');  // e.g. "Tacloban City, Eastern Visayas, Philippines"
+  const [geoAddr2, setGeoAddr2] = useState('');  // e.g. "62HF+5VF, Tacloban City, Leyte, Philippines"
+  const [geoDate, setGeoDate]   = useState(dayjs().format('DD/MM/YY'));
+
+  // ── Per-image geotag (lat, lng, time) stored by key e.g. "combox", "inspection", "equipment-0" ──
+  const [imageGeotags, setImageGeotags] = useState({});
+  // helper
+  const updateImageGeotag = (key, field, value) => {
+    setImageGeotags(prev => ({
+      ...prev,
+      [key]: { ...prev[key], [field]: value }
+    }));
+  };
 
   const handleSpeedTestChange = (index, type, value) => {
     const newSpeedTests = speedTests.map((test, i) => i === index ? { ...test, [type]: value } : test);
@@ -194,102 +422,35 @@ export default function MonthlyInspectionReport() {
   const [speedtestImages, setSpeedtestImages] = useState([]);
   const [siteInspectionImage, setSiteInspectionImage] = useState(null);
 
-  const handleImageUpload = (e, setter, isMultiple = false) => {
-    const files = Array.from(e.target.files);
-    if (files.length === 0) return;
-    files.forEach(file => {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        if (isMultiple) {
-          setter(prev => {
-            if (prev.length >= 4) return prev;
-            return [...prev, event.target.result];
-          });
-        } else {
-          setter(event.target.result);
-        }
-      };
-      reader.readAsDataURL(file);
-    });
-    e.target.value = '';
-  };
-
   const removeImage = (index, setter) => {
     setter(prev => prev.filter((_, i) => i !== index));
   };
-
-  const [draggingOver, setDraggingOver] = useState(null);
-
-  const readFileAsDataURL = (file) =>
-    new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onload = (e) => resolve(e.target.result);
-      reader.readAsDataURL(file);
-    });
-
-  const handleDrop = async (e, zone, setter, isMultiple = false) => {
-    e.preventDefault();
-    setDraggingOver(null);
-    const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
-    if (files.length === 0) return;
-    if (!isMultiple) {
-      const dataUrl = await readFileAsDataURL(files[0]);
-      setter(dataUrl);
-    } else {
-      for (const file of files) {
-        const dataUrl = await readFileAsDataURL(file);
-        setter(prev => {
-          if (prev.length >= 4) return prev;
-          return [...prev, dataUrl];
-        });
-      }
-    }
-  };
-
-  const handleDragOver = (e, zone) => {
-    e.preventDefault();
-    setDraggingOver(zone);
-  };
-
-  const handleDragLeave = () => setDraggingOver(null);
 
   const [pdfUrl, setPdfUrl] = useState(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [pdfBlob, setPdfBlob] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [lightboxImage, setLightboxImage] = useState(null);
-  const [lightboxMeta, setLightboxMeta] = useState(null);
 
+  // ── Lightbox / image editor ──
+  const [lightboxImage, setLightboxImage] = useState(null);
+  const [lightboxMeta, setLightboxMeta] = useState(null); // { zone, index, key }
   const [brightness, setBrightness] = useState(0);
-  const [contrast, setContrast] = useState(0);
+  const [contrast, setContrast]   = useState(0);
   const [sharpness, setSharpness] = useState(0);
   const [imageAdjustments, setImageAdjustments] = useState({});
-  const [geotags, setGeotags] = useState({});          // { "equipment-0": { address, coords, datetime }, … }
-  const [lightboxTab, setLightboxTab] = useState('edit');
+  const [lightboxTab, setLightboxTab] = useState('edit'); // 'edit' | 'geotag'
 
-  const [logoDataUrl, setLogoDataUrl] = useState(null);
+  const [logoDataUrl, setLogoDataUrl]   = useState(null);
   const [logoDataUrl2, setLogoDataUrl2] = useState(null);
 
   const { getToken } = useAuth();
 
   useEffect(() => {
-    const loadLogo = async () => {
-      try {
-        const dataUrl = await getBase64FromImageUrl(dict_logo.src);
-        setLogoDataUrl(dataUrl);
-      } catch (e) { console.warn(e); }
-    };
-    loadLogo();
+    getBase64FromImageUrl(dict_logo.src).then(setLogoDataUrl).catch(console.warn);
   }, []);
 
   useEffect(() => {
-    const loadLogo = async () => {
-      try {
-        const dataUrl = await getBase64FromImageUrl(freq_logo.src);
-        setLogoDataUrl2(dataUrl);
-      } catch (e) { console.warn(e); }
-    };
-    loadLogo();
+    getBase64FromImageUrl(freq_logo.src).then(setLogoDataUrl2).catch(console.warn);
   }, []);
 
   useEffect(() => {
@@ -299,10 +460,7 @@ export default function MonthlyInspectionReport() {
         const token = await getToken();
         if (!token) return;
         const res = await fetch("/api/sites", {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          },
+          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
         });
         const data = await res.json();
         const normalized = (data.data || []).map(site => ({
@@ -334,10 +492,7 @@ export default function MonthlyInspectionReport() {
   };
 
   const fetchGallery = async () => {
-    if (!selectedSite) {
-      setSiteGallery([]);
-      return;
-    }
+    if (!selectedSite) { setSiteGallery([]); return; }
     setIsLoadingGallery(true);
     try {
       const token = await getToken();
@@ -359,21 +514,18 @@ export default function MonthlyInspectionReport() {
     if (!reportId) return;
     try {
       const token = await getToken();
-      // Fetch the saved report to view the PDF, excluding the unused config
       const res = await fetch(`/api/reports/monthly?id=${reportId}&excludeConfig=true`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const result = await res.json();
       if (result.success) {
-        // Set the PDF URL directly from the saved data to show the preview immediately
         if (result.data.pdf_data) {
           const blob = base64ToBlob(result.data.pdf_data);
           const url = URL.createObjectURL(blob);
-          setPdfBlob(blob); // Restore blob so the "Save" logic doesn't break
-          if (pdfUrl) URL.revokeObjectURL(pdfUrl); // Cleanup old URL
+          setPdfBlob(blob);
+          if (pdfUrl) URL.revokeObjectURL(pdfUrl);
           setPdfUrl(url);
         }
-        // Sync form date with the report's metadata, but ignore the rest of the config
         setReportDate(dayjs(result.data.report_date).format('YYYY-MM-DD'));
         Swal.fire('Loaded', 'Saved report preview restored.', 'success');
       }
@@ -382,6 +534,7 @@ export default function MonthlyInspectionReport() {
       Swal.fire('Error', 'Failed to load report data.', 'error');
     }
   };
+
   async function applyImageAdjustments(src, brightness, contrast, sharpness = 0) {
     return new Promise((resolve) => {
       const img = new Image();
@@ -390,9 +543,7 @@ export default function MonthlyInspectionReport() {
         canvas.width = img.width;
         canvas.height = img.height;
         const ctx = canvas.getContext('2d');
-        const brightnessCSS = 100 + brightness;
-        const contrastCSS = 100 + contrast;
-        ctx.filter = `brightness(${brightnessCSS}%) contrast(${contrastCSS}%)`;
+        ctx.filter = `brightness(${100 + brightness}%) contrast(${100 + contrast}%)`;
         ctx.drawImage(img, 0, 0);
         ctx.filter = 'none';
         if (sharpness !== 0) {
@@ -400,23 +551,18 @@ export default function MonthlyInspectionReport() {
           const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
           const srcData = imageData.data;
           const output = new Uint8ClampedArray(srcData);
-          const w = canvas.width;
-          const h = canvas.height;
+          const w = canvas.width; const h = canvas.height;
           const kernel = [0, -strength, 0, -strength, 1 + 4 * strength, -strength, 0, -strength, 0];
           for (let y = 1; y < h - 1; y++) {
             for (let x = 1; x < w - 1; x++) {
               for (let c = 0; c < 3; c++) {
                 const i = (y * w + x) * 4 + c;
                 output[i] = Math.min(255, Math.max(0,
-                  kernel[0] * srcData[((y - 1) * w + (x - 1)) * 4 + c] +
-                  kernel[1] * srcData[((y - 1) * w + x) * 4 + c] +
-                  kernel[2] * srcData[((y - 1) * w + (x + 1)) * 4 + c] +
-                  kernel[3] * srcData[(y * w + (x - 1)) * 4 + c] +
-                  kernel[4] * srcData[(y * w + x) * 4 + c] +
-                  kernel[5] * srcData[(y * w + (x + 1)) * 4 + c] +
-                  kernel[6] * srcData[((y + 1) * w + (x - 1)) * 4 + c] +
-                  kernel[7] * srcData[((y + 1) * w + x) * 4 + c] +
-                  kernel[8] * srcData[((y + 1) * w + (x + 1)) * 4 + c]
+                  kernel[0] * srcData[((y-1)*w+(x-1))*4+c] + kernel[1] * srcData[((y-1)*w+x)*4+c] +
+                  kernel[2] * srcData[((y-1)*w+(x+1))*4+c] + kernel[3] * srcData[(y*w+(x-1))*4+c] +
+                  kernel[4] * srcData[(y*w+x)*4+c] + kernel[5] * srcData[(y*w+(x+1))*4+c] +
+                  kernel[6] * srcData[((y+1)*w+(x-1))*4+c] + kernel[7] * srcData[((y+1)*w+x)*4+c] +
+                  kernel[8] * srcData[((y+1)*w+(x+1))*4+c]
                 ));
               }
             }
@@ -429,16 +575,65 @@ export default function MonthlyInspectionReport() {
     });
   }
 
-  const handleGeneratePDF = (e) => {
+  // ── Build the geotag object for a given image key ──
+  const buildGeotag = (key) => {
+    const perImg = imageGeotags[key] || {};
+    return {
+      addr1: geoAddr1,
+      addr2: geoAddr2,
+      date:  geoDate,
+      lat:   perImg.lat  || '',
+      lng:   perImg.lng  || '',
+      time:  perImg.time || '',
+    };
+  };
+
+  const hasAnyGeotag = (key) => {
+    const g = buildGeotag(key);
+    return g.addr1 || g.addr2 || g.lat || g.lng || g.date || g.time;
+  };
+
+  // ── Stamp all images before PDF generation ──
+  const prepareStampedImages = async () => {
+  const hasGeotag = (g) => g.addr1 || g.addr2 || g.lat || g.lng || g.date || g.time;
+
+  const maybeStamp = async (img, key) => {
+    if (!img) return null;
+    const g = buildGeotag(key);
+    if (!hasGeotag(g)) return img;
+    const pinDataUrl = imageGeotags[key]?.pinDataUrl || null;
+    const stamped = await stampGeotag(img.url, g, pinDataUrl);
+    return { ...img, url: stamped };
+  };
+
+  const [sCombox, sInspection] = await Promise.all([
+    maybeStamp(comboxImage, 'combox'),
+    maybeStamp(siteInspectionImage, 'inspection'),
+  ]);
+
+  const sAdditional = await Promise.all(
+    additionalImages.map((img, i) => maybeStamp(img, `equipment-${i}`))
+  );
+  const sSpeedtest = await Promise.all(
+    speedtestImages.map((img, i) => maybeStamp(img, `speedtest-${i}`))
+  );
+
+  return { sCombox, sInspection, sAdditional, sSpeedtest };
+};
+
+  const handleGeneratePDF = async (e) => {
     e.preventDefault();
     if (!selectedSite) return alert("Please select a site first");
     setIsGenerating(true);
     try {
+      // Stamp geotags onto images first
+      const { sCombox, sInspection, sAdditional, sSpeedtest } = await prepareStampedImages();
+
       const doc = new jsPDF('p', 'mm', 'a4');
       const siteInfo = sites.find(s => s.siteId === selectedSite);
       const { siteCode, siteName } = parseSiteInfo(siteInfo?.name);
       const expandedSiteName = expandSiteType(siteName);
-      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageWidth  = doc.internal.pageSize.getWidth();
       const pageHeight = doc.internal.pageSize.getHeight();
 
       const drawHeader = () => {
@@ -446,12 +641,9 @@ export default function MonthlyInspectionReport() {
           startY: 10,
           body: [['', '', '']],
           styles: {
-           minCellHeight: pageHeight * 0.07,
-            valign: 'middle',
-            halign: 'center',
-            fontSize: 9,
-            lineWidth: 0.1,
-            lineColor: [0, 0, 0]
+            minCellHeight: pageHeight * 0.07,
+            valign: 'middle', halign: 'center',
+            fontSize: 9, lineWidth: 0.1, lineColor: [0, 0, 0]
           },
           columnStyles: {
             0: { cellWidth: pageWidth * 0.2 - 3 },
@@ -467,23 +659,21 @@ export default function MonthlyInspectionReport() {
                 const y = data.cell.y + (data.cell.height - imgSize) / 2;
                 doc.addImage(logoDataUrl, 'PNG', x - 6, y, imgSize + 13, imgSize);
               }
-              if (data.column.index === 1) { //Header section with title and subtitle
-              const cell = data.cell;
-              const centerX = cell.x + cell.width / 2;
-              const centerY = cell.y + cell.height / 2;
-
-              doc.setTextColor(0, 0, 0); //  pure black
-              doc.setFont('Palatino', 'bold'); //  Palatino
-              doc.setFontSize(16);
-              doc.text('MONTHLY INSPECTION REPORT', centerX, centerY - 3, { align: 'center' });
-
-               doc.setTextColor(0, 0, 0); //  pure black
-               doc.setFont('Palatino', 'normal'); //  Palatino
-               doc.setFontSize(12);
-               const text = 'Provision Of Internet Connectivity Service (PICS)\nIn Public Places - Phase 2';
-               const splitText = doc.splitTextToSize(text, cell.width - 2);
-               doc.text(splitText, centerX, centerY + 2, { align: 'center' });
-                }
+              if (data.column.index === 1) {
+                const cell = data.cell;
+                const centerX = cell.x + cell.width / 2;
+                const centerY = cell.y + cell.height / 2;
+                doc.setTextColor(0, 0, 0);
+                doc.setFont('Palatino', 'bold');
+                doc.setFontSize(16);
+                doc.text('MONTHLY INSPECTION REPORT', centerX, centerY - 3, { align: 'center' });
+                doc.setTextColor(0, 0, 0);
+                doc.setFont('Palatino', 'normal');
+                doc.setFontSize(12);
+                const text = 'Provision Of Internet Connectivity Service (PICS)\nIn Public Places - Phase 2';
+                const splitText = doc.splitTextToSize(text, cell.width - 2);
+                doc.text(splitText, centerX, centerY + 2, { align: 'center' });
+              }
               if (data.column.index === 2 && logoDataUrl2) {
                 const imgSize = 20;
                 const x = data.cell.x + (data.cell.width - imgSize) / 2;
@@ -496,237 +686,170 @@ export default function MonthlyInspectionReport() {
       };
 
       const drawFooter = () => {
-  const footerY = pageHeight - 55;
-  doc.setFontSize(10);
-  doc.setFont('Palatino', 'italic');
-  doc.text("Notes: Photos should have Geotagging (coordinates, date and time stamp)", 15, footerY);
+        const footerY = pageHeight - 55;
+        doc.setFontSize(10);
+        doc.setFont('Palatino', 'italic');
+        doc.text("Notes: Photos should have Geotagging (coordinates, date and time stamp)", 15, footerY);
 
-  const drawSignatory = (label, person, x, y, fixedLabelWidth = null) => {
-    doc.setFont('Palatino', 'normal');
-    const labelW = doc.getTextWidth(label);
-
-    // If fixedLabelWidth is provided, right-align the label
-    const actualLabelWidth = fixedLabelWidth ?? labelW;
-    doc.text(label, x + (actualLabelWidth - labelW), y);
-
-    // Name (bold)
-    doc.setFont('Palatino', 'bold');
-    doc.text(person.name, x + actualLabelWidth, y);
-
-    // Underline under name only
-    const nameWidth = doc.getTextWidth(person.name);
-    doc.setLineWidth(0.1);
-    doc.line(x + actualLabelWidth, y + 1, x + actualLabelWidth + nameWidth, y + 1);
-
-    // Roles centered under name
-    const nameCenterX = x + actualLabelWidth + nameWidth / 2;
-    doc.setFont('Palatino', 'normal');
-    person.lines.forEach((line, i) => {
-      const lineWidth = doc.getTextWidth(line);
-      doc.text(line, nameCenterX - lineWidth / 2, y + 5.5 + (i * 5));
-    });
-  };
-
-  const leftX = 15;
-  const rightX = pageWidth / 2 + 10;
-  const fixedWidth = 22; //  adjust to align colons of Checked by and Noted by
-
-  drawSignatory("Prepared by: ", preparedBy, leftX, footerY + 12); // no fixed width
-  drawSignatory("Checked by: ", checkedBy, rightX, footerY + 12, fixedWidth); // aligned
-  drawSignatory("Noted by: ", notedBy, rightX, footerY + 33, fixedWidth);     // aligned
-}; // ── Updated drawFooter using selected signatories ──
- 
-      const drawImageGrid = (images, startY, containerHeight) => {
-        const gap = 10;
-        const padding = 8;
-        const availableWidth = pageWidth - 30 - padding * 2;
-        const availableHeight = containerHeight - padding * 2;
-
-        if (images.length === 5) {
-          const rowHeight = (availableHeight - gap) / 2;
-
-          const topRowY = startY + padding;
-          const topRowWidth = (availableWidth - gap) / 2;
-
-          addImageToPage(images[0]?.url, 15 + padding, topRowY, topRowWidth, rowHeight);
-          addImageToPage(images[1]?.url, 15 + padding + topRowWidth + gap, topRowY, topRowWidth, rowHeight);
-
-          const bottomRowY = startY + padding + rowHeight + gap;
-          const bottomRowWidth = (availableWidth - 2 * gap) / 3;
-
-          addImageToPage(images[2]?.url, 15 + padding, bottomRowY, bottomRowWidth, rowHeight);
-          addImageToPage(images[3]?.url, 15 + padding + bottomRowWidth + gap, bottomRowY, bottomRowWidth, rowHeight);
-          addImageToPage(images[4]?.url, 15 + padding + 2 * (bottomRowWidth + gap), bottomRowY, bottomRowWidth, rowHeight);
-
-        } else {
-          const cols = 2;
-          const rows = images.length <= 2 ? 1 : images.length <= 4 ? 2 : 3;
-          const cellWidth = (availableWidth - gap * (cols - 1)) / cols;
-          const cellHeight = (availableHeight - gap * (rows - 1)) / rows;
-
-          images.forEach((img, index) => {
-            if (index >= cols * rows) return;
-            const col = index % cols;
-            const row = Math.floor(index / cols);
-            const x = 15 + padding + col * (cellWidth + gap);
-            const y = startY + padding + row * (cellHeight + gap);
-            addImageToPage(img?.url, x, y, cellWidth, cellHeight);
+        const drawSignatory = (label, person, x, y, fixedLabelWidth = null) => {
+          doc.setFont('Palatino', 'normal');
+          const labelW = doc.getTextWidth(label);
+          const actualLabelWidth = fixedLabelWidth ?? labelW;
+          doc.text(label, x + (actualLabelWidth - labelW), y);
+          doc.setFont('Palatino', 'bold');
+          doc.text(person.name, x + actualLabelWidth, y);
+          const nameWidth = doc.getTextWidth(person.name);
+          doc.setLineWidth(0.1);
+          doc.line(x + actualLabelWidth, y + 1, x + actualLabelWidth + nameWidth, y + 1);
+          const nameCenterX = x + actualLabelWidth + nameWidth / 2;
+          doc.setFont('Palatino', 'normal');
+          person.lines.forEach((line, i) => {
+            const lineWidth = doc.getTextWidth(line);
+            doc.text(line, nameCenterX - lineWidth / 2, y + 5.5 + (i * 5));
           });
         };
-        const leftX = 15;
+
+        const leftX  = 15;
         const rightX = pageWidth / 2 + 10;
         const fixedWidth = 22;
-        drawSignatory("Prepared by: ", preparedBy, leftX, footerY + 12);
-        drawSignatory("Checked by: ", checkedBy, rightX, footerY + 12, fixedWidth);
-        drawSignatory("Noted by: ", notedBy, rightX, footerY + 33, fixedWidth);
+        drawSignatory("Prepared by: ", preparedBy, leftX,  footerY + 12);
+        drawSignatory("Checked by: ",  checkedBy,  rightX, footerY + 12, fixedWidth);
+        drawSignatory("Noted by: ",    notedBy,    rightX, footerY + 33, fixedWidth);
       };
 
+      // "cover" mode — image fills the cell entirely, cropped to fit, no letterbox bars
       const addImageToPage = (imgData, x, y, maxWidth, maxHeight) => {
-        if (imgData) {
-          try {
-            const img = new Image();
-            img.src = imgData;
-            const naturalW = img.naturalWidth || maxWidth;
-            const naturalH = img.naturalHeight || maxHeight;
-            const ratio = naturalW / naturalH;
-            let drawW = maxWidth;
-            let drawH = maxWidth / ratio;
-            if (drawH > maxHeight) {
-              drawH = maxHeight;
-              drawW = maxHeight * ratio;
-            }
-            const offsetX = x + (maxWidth - drawW) / 2;
-            const offsetY = y + (maxHeight - drawH) / 2;
-            doc.addImage(imgData, 'JPEG', offsetX, offsetY, drawW, drawH);
-          } catch (error) {
-            console.warn("Error adding image to PDF", error);
-            doc.text("[Image Error]", x + maxWidth / 2, y + maxHeight / 2, { align: 'center' });
+        if (!imgData) return;
+        try {
+          const img = new Image();
+          img.src = imgData;
+          const naturalW = img.naturalWidth  || maxWidth;
+          const naturalH = img.naturalHeight || maxHeight;
+          const cellRatio = maxWidth / maxHeight;
+          const imgRatio  = naturalW / naturalH;
+
+          let drawW, drawH, offsetX, offsetY;
+          if (imgRatio > cellRatio) {
+            // wider than cell — fit height, crop sides
+            drawH   = maxHeight;
+            drawW   = maxHeight * imgRatio;
+            offsetX = x - (drawW - maxWidth) / 2;
+            offsetY = y;
+          } else {
+            // taller than cell — fit width, crop top/bottom
+            drawW   = maxWidth;
+            drawH   = maxWidth / imgRatio;
+            offsetX = x;
+            offsetY = y - (drawH - maxHeight) / 2;
           }
+
+          // Clip to cell bounds so overflow is hidden
+          doc.saveGraphicsState();
+          const pdfX = x  * (72 / 25.4);
+          const pdfY = (pageHeight - y - maxHeight) * (72 / 25.4);
+          const pdfW = maxWidth  * (72 / 25.4);
+          const pdfH = maxHeight * (72 / 25.4);
+          doc.internal.write(
+            `q ${pdfX.toFixed(2)} ${pdfY.toFixed(2)} ${pdfW.toFixed(2)} ${pdfH.toFixed(2)} re W n`
+          );
+          doc.addImage(imgData, 'JPEG', offsetX, offsetY, drawW, drawH);
+          doc.restoreGraphicsState();
+        } catch (error) {
+          console.warn("Error adding image to PDF", error);
+          doc.text("[Image Error]", x + maxWidth / 2, y + maxHeight / 2, { align: 'center' });
         }
       };
 
-      
-      const draw2x2Grid = (images, startY, gridHeight, margin = 12.7) => {
-      const innerPadding = 3;// space between grid border and images
-      const gapX = 4; // horizontal gap between images
-      const gapY = 4; // vertical gap between images
+  const draw2x2Grid = (images, startY, gridHeight, margin = 12.7) => {
+  const outerPad = 4;
+  const gapX = 3;
+  const gapY = 3;
+  const imgPadV = 4;   
+  const imgPadH = 14;  
 
-        const totalWidth = pageWidth - margin * 2 - innerPadding * 2;
-        const totalHeight = gridHeight - innerPadding * 2;
+  const totalWidth  = pageWidth  - margin * 2 - outerPad * 2;
+  const totalHeight = gridHeight - outerPad * 2;
+  const cellWidth   = (totalWidth  - gapX) / 2;
+  const cellHeight  = (totalHeight - gapY) / 2;
 
-        const cellWidth = (totalWidth - gapX) / 2;
-        const cellHeight = (totalHeight - gapY) / 2;
+  const positions = [{ col:0,row:0},{col:1,row:0},{col:0,row:1},{col:1,row:1}];
 
-        const positions = [
-          { col: 0, row: 0 },
-          { col: 1, row: 0 },
-          { col: 0, row: 1 },
-          { col: 1, row: 1 },
-        ];
+  images.slice(0, 4).forEach((img, index) => {
+    const { col, row } = positions[index];
+    const cellX = margin + outerPad + col * (cellWidth + gapX);
+    const cellY = startY + outerPad + row * (cellHeight + gapY);
 
-        images.slice(0, 4).forEach((img, index) => {
-          const { col, row } = positions[index];
-          const x = margin + innerPadding + col * (cellWidth + gapX);
-          const y = startY + innerPadding + row * (cellHeight + gapY);
-          addImageToPage(img?.url, x, y, cellWidth, cellHeight);
-        });
-      };
+    doc.setDrawColor(180, 180, 180);
+    doc.setLineWidth(0.1);
+    doc.rect(cellX, cellY, cellWidth, cellHeight);
 
-            // 1. TOP HEADER & PAGE 1 INFO
-            drawHeader();
-            doc.setFontSize(12);
-            doc.setFont('Palatino', 'bold'); // Updated to Palatino Bold
-            doc.text(`Provider Name: FREQ IT SOLUTIONS`, 15, doc.lastAutoTable.finalY + 10);
-            doc.text(`Date Prepared: ${dayjs(reportDate).format('MMMM D, YYYY')}`, pageWidth - 15, doc.lastAutoTable.finalY + 10, { align: 'right' });
+    addImageToPage(
+      img?.url,
+      cellX + imgPadH,
+      cellY + imgPadV,
+      cellWidth  - imgPadH * 2,
+      cellHeight - imgPadV * 2
+    );
+  });
+};
 
-            // 2. MAIN DATA TABLE
-            autoTable(doc, {
-              startY: doc.lastAutoTable.finalY + 15,
-              head: [[
-                'Item\nNo.',
-                'Location Code',
-                'Location Name',
-                'Downlink\nBandwidth\nMbps)',
-                'Uplink\nBandwidth\n(Mbps)',
-                'Contracted\nBandwidth\n(Mbps)',
-                'Remarks'
-              ]],
-              body: [
-                [
-                  { content: '1', rowSpan: 4, styles: { valign: 'middle', halign: 'center', textColor: [0, 0, 0] } },
-                  { content: siteCode || 'N/A', rowSpan: 4, styles: { valign: 'middle', halign: 'center', textColor: [0, 0, 0] } },
-                { content: expandedSiteName?.toUpperCase() || 'N/A', rowSpan: 4, styles: { valign: 'middle', halign: 'center' } },//updated to call the expanded names
-                  speedTests[0].down,
-                  speedTests[0].up,
-                  { content: `${contractedBandwidth} Mbps`, rowSpan: 4, styles: { valign: 'middle', halign: 'center', textColor: [0, 0, 0] } },
-                  { content: '', rowSpan: 4, styles: { valign: 'middle', halign: 'center', textColor: [0, 0, 0] } }
-                ],
-                [speedTests[1].down, speedTests[1].up],
-                [speedTests[2].down, speedTests[2].up],
-                [speedTests[3].down, speedTests[3].up],
-              ],
-              theme: 'grid',
-              //header and body styles
-              headStyles: {
-              fillColor: [182, 210, 232],
-              textColor: [0, 0, 0],
-              fontStyle: 'bold',
-              font: 'Palatino', // 
-              halign: 'center',
-              valign: 'middle',
-              lineWidth: 0.1,
-              lineColor: [0, 0, 0],
-              fontSize: 11,  
-              },
-              bodyStyles: {
-              textColor: [0, 0, 0],
-              halign: 'center',
-              valign: 'middle',
-              font: 'Palatino', // 
-              fontStyle: 'bold',
-                fontSize: 11,
-              lineWidth: 0.1,
-              lineColor: [0, 0, 0]
-              },
-              styles: {
-              fontSize: 8,
-              halign: 'center',
-              font: 'Palatino', // 
-              lineWidth: 0.1,
-              lineColor: [0, 0, 0]
-              },
-              columnStyles: {
-                2: { halign: 'left', cellWidth: 40 },
-                6: { cellWidth: 25 }
-              }
-            });
+      // ── PAGE 1: Header + data table ──
+      drawHeader();
+      doc.setFontSize(12);
+      doc.setFont('Palatino', 'bold');
+      doc.text(`Provider Name: FREQ IT SOLUTIONS`, 15, doc.lastAutoTable.finalY + 10);
+      doc.text(`Date Prepared: ${dayjs(reportDate).format('MMMM D, YYYY')}`, pageWidth - 15, doc.lastAutoTable.finalY + 10, { align: 'right' });
 
-            drawFooter();
+      autoTable(doc, {
+        startY: doc.lastAutoTable.finalY + 15,
+        head: [['Item\nNo.','Location Code','Location Name','Downlink\nBandwidth\nMbps)','Uplink\nBandwidth\n(Mbps)','Contracted\nBandwidth\n(Mbps)','Remarks']],
+        body: [
+          [
+            { content: '1',                                                                   rowSpan: 4, styles: { valign:'middle', halign:'center', textColor:[0,0,0] } },
+            { content: siteCode || 'N/A',                                                     rowSpan: 4, styles: { valign:'middle', halign:'center', textColor:[0,0,0] } },
+            { content: expandedSiteName?.toUpperCase() || 'N/A',                              rowSpan: 4, styles: { valign:'middle', halign:'center' } },
+            speedTests[0].down, speedTests[0].up,
+            { content: `${contractedBandwidth} Mbps`,                                         rowSpan: 4, styles: { valign:'middle', halign:'center', textColor:[0,0,0] } },
+            { content: '',                                                                     rowSpan: 4, styles: { valign:'middle', halign:'center', textColor:[0,0,0] } }
+          ],
+          [speedTests[1].down, speedTests[1].up],
+          [speedTests[2].down, speedTests[2].up],
+          [speedTests[3].down, speedTests[3].up],
+        ],
+        theme: 'grid',
+        headStyles: { fillColor:[182,210,232], textColor:[0,0,0], fontStyle:'bold', font:'Palatino', halign:'center', valign:'middle', lineWidth:0.1, lineColor:[0,0,0], fontSize:11 },
+        bodyStyles: { textColor:[0,0,0], halign:'center', valign:'middle', font:'Palatino', fontStyle:'bold', fontSize:11, lineWidth:0.1, lineColor:[0,0,0] },
+        styles: { fontSize:8, halign:'center', font:'Palatino', lineWidth:0.1, lineColor:[0,0,0] },
+        columnStyles: { 2: { halign:'left', cellWidth:40 }, 6: { cellWidth:25 } }
+      });
+      drawFooter();
 
-            // 3. ATTACHMENT 1: EQUIPMENT PHOTOS (Combox)
-            doc.addPage();
-            drawHeader();
-            drawFooter();
-            let currentY = 42;
-            doc.setFontSize(11);
-            doc.setFont('Palatino', 'bold');
-            doc.text("ATTACHMENT 1: EQUIPMENT PHOTOS", pageWidth / 2, currentY, { align: 'center' });
-            currentY += 5;
+      // ── PAGE 2: Attachment 1 — Combox ──
+      doc.addPage();
+      drawHeader();
+      drawFooter();
+      let currentY = 42;
+      doc.setFontSize(11);
+      doc.setFont('Palatino', 'bold');
+      doc.text("ATTACHMENT 1: EQUIPMENT PHOTOS", pageWidth / 2, currentY, { align: 'center' });
+      currentY += 5;
+      const sectionHeight = 190;
+      doc.setDrawColor(0); doc.setLineWidth(0.1);
+      doc.rect(15, currentY, pageWidth - 30, sectionHeight);
+      if (sCombox) {
+  const padV = 8;
+  const padH = 20;
+  addImageToPage(
+    sCombox.url,
+    15 + padH,
+    currentY + padV,
+    pageWidth - 30 - padH * 2,
+    sectionHeight - padV * 2
+  );
+}
 
-            const sectionHeight = 190;
-            doc.setDrawColor(0);
-            doc.setLineWidth(0.1);
-            doc.rect(15, currentY, pageWidth - 30, sectionHeight);
-
-            if (comboxImage) {
-              addImageToPage(comboxImage.url, 15 + 5, currentY + 5, pageWidth - 25, sectionHeight - 10);
-            } else {
-              doc.setFont('Palatino', 'italic');
-              doc.text("[No Communication Box Image Uploaded]", pageWidth / 2, currentY + sectionHeight / 2, { align: 'center' });
-            }
-
-            // 4. ATTACHMENT 1: ADDITIONAL PHOTOS
-            if (additionalImages.length > 0) {
+      // ── PAGE 3: Attachment 1 — Access Points ──
+      if (sAdditional.length > 0) {
         doc.addPage();
         drawHeader();
         drawFooter();
@@ -734,33 +857,32 @@ export default function MonthlyInspectionReport() {
         doc.setFont('Palatino', 'bold');
         const titleY = 42;
         doc.text("ATTACHMENT 1: EQUIPMENT PHOTOS (Access Points)", pageWidth / 2, titleY, { align: 'center' });
-        const gridStartY = titleY + 5;
-        const gridHeight = pageHeight - gridStartY - 65;
+        const gridStartY  = titleY + 5;
+        const gridHeight  = pageHeight - gridStartY - 65;
         doc.rect(12.7, gridStartY, pageWidth - 12.7 * 2, gridHeight);
-        draw2x2Grid(additionalImages, gridStartY, gridHeight);
+        draw2x2Grid(sAdditional, gridStartY, gridHeight);
       }
 
-      // 5. ATTACHMENT 2: BW TEST RESULTS
-     doc.addPage();
+      // ── PAGE 4: Attachment 2 — Bandwidth test ──
+      doc.addPage();
       drawHeader();
       drawFooter();
       doc.setFontSize(11);
       doc.setFont('Palatino', 'bold');
-      const bwTitleY = 42;
+      const bwTitleY     = 42;
       doc.text("ATTACHMENT 2: BANDWIDTH TEST RESULTS", pageWidth / 2, bwTitleY, { align: 'center' });
       const bwGridStartY = bwTitleY + 5;
       const bwGridHeight = pageHeight - bwGridStartY - 65;
       doc.rect(12.7, bwGridStartY, pageWidth - 12.7 * 2, bwGridHeight);
-
-      if (speedtestImages.length > 0) {
-        draw2x2Grid(speedtestImages, bwGridStartY, bwGridHeight);
+      if (sSpeedtest.length > 0) {
+        draw2x2Grid(sSpeedtest, bwGridStartY, bwGridHeight);
       } else {
         doc.setFont('Palatino', 'italic');
         doc.setFontSize(10);
         doc.text("[No Speedtest Images Uploaded]", pageWidth / 2, bwGridStartY + bwGridHeight / 2, { align: 'center' });
       }
 
-      // 6. ATTACHMENT 3: SITE PICTURES
+      // ── PAGE 5: Attachment 3 — Site pictures ──
       doc.addPage();
       drawHeader();
       drawFooter();
@@ -768,17 +890,23 @@ export default function MonthlyInspectionReport() {
       doc.setFont('Palatino', 'bold');
       const siteTitleY = 42;
       doc.text("ATTACHMENT 3: SITE PICTURES", pageWidth / 2, siteTitleY, { align: 'center' });
-
       const siteSectionY = siteTitleY + 5;
       doc.rect(15, siteSectionY, pageWidth - 30, sectionHeight);
-      if (siteInspectionImage) {
-        const imageMargin = 8;
-        addImageToPage(siteInspectionImage.url, 15 + 15, siteSectionY + 15, pageWidth - 60, sectionHeight - 40);
-      } else {
+      if (sInspection) {
+  const padV = 8;
+  const padH = 20;
+  addImageToPage(
+    sInspection.url,
+    15 + padH,
+    siteSectionY + padV,
+    pageWidth - 30 - padH * 2,
+    sectionHeight - padV * 2
+  );
+} else {
         doc.setFont('Palatino', 'italic');
         doc.setFontSize(10);
         doc.text("[No Site Inspection Image Uploaded]", pageWidth / 2, siteSectionY + sectionHeight / 2, { align: 'center' });
-      }
+        }
 
       const pdfBlob = doc.output("blob");
       const url = URL.createObjectURL(pdfBlob);
@@ -805,21 +933,20 @@ export default function MonthlyInspectionReport() {
       const token = await getToken();
       const res = await fetch('/api/reports/monthly', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({
           siteId: selectedSite,
-          reportDate: reportDate,
+          reportDate,
           pdfData: base64data,
           config: {
             speedTests,
+            geotag: { addr1: geoAddr1, addr2: geoAddr2, date: geoDate },
+            imageGeotags,
             imageIds: {
-              combox: comboxImage?.id,
-              inspection: siteInspectionImage?.id,
-              additional: additionalImages.map(img => img.id),
-              speedtest: speedtestImages.map(img => img.id)
+              combox:      comboxImage?.id,
+              inspection:  siteInspectionImage?.id,
+              additional:  additionalImages.map(img => img.id),
+              speedtest:   speedtestImages.map(img  => img.id)
             }
           }
         })
@@ -842,24 +969,17 @@ export default function MonthlyInspectionReport() {
   const handleNextClick = () => {
     const currentTest = speedTests[activeSpeedTestTab];
     const missingDown = !currentTest.down;
-    const missingUp = !currentTest.up;
+    const missingUp   = !currentTest.up;
     if (missingDown || missingUp) {
       const missing = [];
       if (missingDown) missing.push('Download');
-      if (missingUp) missing.push('Upload');
+      if (missingUp)   missing.push('Upload');
       Swal.fire({
         icon: 'warning',
         title: `Missing AP ${activeSpeedTestTab + 1} Data`,
-        html: `
-          Please fill in the following:
-          <ul style="text-align: center; margin-top: 8px;">
-            ${missing.map(m => `<li>${m}</li>`).join('')}
-          </ul>
-        `,
+        html: `Please fill in the following:<ul style="text-align:center;margin-top:8px">${missing.map(m => `<li>${m}</li>`).join('')}</ul>`,
         confirmButtonText: 'Go Back',
-        background: '#1f2b3a',
-        color: '#e2e1e1',
-        confirmButtonColor: '#3b82f6',
+        background: '#1f2b3a', color: '#e2e1e1', confirmButtonColor: '#3b82f6',
       });
       return;
     }
@@ -872,16 +992,13 @@ export default function MonthlyInspectionReport() {
 
   const handleSiteSelect = (id) => {
     setSelectedSite(id);
-    setPdfUrl(null);
-    setPdfBlob(null);
+    setPdfUrl(null); setPdfBlob(null);
     setSpeedTests(Array(4).fill(null).map(() => ({ down: '', up: '' })));
-    setActiveSpeedTestTab(0);
-    setActiveSectionTab(0);
-    setComboxImage(null);
-    setAdditionalImages([]);
-    setSpeedtestImages([]);
-    setSiteInspectionImage(null);
+    setActiveSpeedTestTab(0); setActiveSectionTab(0);
+    setComboxImage(null); setAdditionalImages([]); setSpeedtestImages([]); setSiteInspectionImage(null);
     setImageAdjustments({});
+    setGeoAddr1(''); setGeoAddr2(''); setGeoDate(dayjs().format('DD/MM/YY'));
+    setImageGeotags({});
     setPreparedBy(PREPARED_BY_OPTIONS[0]);
     setCheckedBy(CHECKED_BY_OPTIONS[0]);
     setNotedBy(NOTED_BY_OPTIONS[0]);
@@ -890,19 +1007,27 @@ export default function MonthlyInspectionReport() {
   const handleSelectFromGallery = (img) => {
     if (!assigningTarget) return;
     const { type } = assigningTarget;
-    
-    if (type === 'combox') setComboxImage(img);
+    if (type === 'combox')     setComboxImage(img);
     else if (type === 'inspection') setSiteInspectionImage(img);
-    else if (type === 'equipment') {
-      setAdditionalImages(prev => prev.length < 4 ? [...prev, img] : prev);
-    }
-    else if (type === 'speedtest') {
-      setSpeedtestImages(prev => prev.length < 4 ? [...prev, img] : prev);
-    }
-
+    else if (type === 'equipment')  setAdditionalImages(prev => prev.length < 4 ? [...prev, img] : prev);
+    else if (type === 'speedtest')  setSpeedtestImages(prev   => prev.length < 4 ? [...prev, img] : prev);
     setShowGalleryModal(false);
     setAssigningTarget(null);
   };
+
+  // ── Open lightbox for a given image + meta ──
+  const openLightbox = (imgUrl, meta) => {
+    setLightboxImage(imgUrl);
+    setLightboxMeta(meta);
+    setLightboxTab('edit');
+    const key = meta.key;
+    const saved = imageAdjustments[key];
+    setBrightness(saved?.brightness ?? 0);
+    setContrast(saved?.contrast   ?? 0);
+    setSharpness(saved?.sharpness  ?? 0);
+  };
+
+
 
   return (
     <main className="p-4 sm:p-8 bg-gradient-to-br from-gray-900 via-gray-800 to-black min-h-screen text-white">
@@ -938,7 +1063,7 @@ export default function MonthlyInspectionReport() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="flex flex-col gap-1 md:col-span-2">
                       <label className="text-sm text-gray-300">Load Previous Report</label>
-                      <select 
+                      <select
                         onChange={(e) => loadPreviousReport(e.target.value)}
                         className="bg-blue-500/10 border border-blue-500/30 p-3 rounded-xl outline-none text-blue-300"
                       >
@@ -967,212 +1092,100 @@ export default function MonthlyInspectionReport() {
                       <input type="text" value={contractedBandwidth} onChange={(e) => setContractedBandwidth(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()} className="bg-white/5 border border-white/20 p-3 rounded-xl outline-none" />
                     </div>
 
-                    {/* ── Signatory Custom Dropdowns ── */}
-                    <CustomSelect
-                      label="Prepared by"
-                      value={preparedBy.name}
-                      onChange={setPreparedBy}
-                      options={PREPARED_BY_OPTIONS}
-                    />
-
-                    <CustomSelect
-                      label="Checked by"
-                      value={checkedBy.name}
-                      onChange={setCheckedBy}
-                      options={CHECKED_BY_OPTIONS}
-                    />
-
-                    <CustomSelect
-                      label="Noted by"
-                      value={notedBy.name}
-                      onChange={setNotedBy}
-                      options={NOTED_BY_OPTIONS}
-                    />
+                    <CustomSelect label="Prepared by" value={preparedBy.name} onChange={setPreparedBy} options={PREPARED_BY_OPTIONS} />
+                    <CustomSelect label="Checked by"  value={checkedBy.name}  onChange={setCheckedBy}  options={CHECKED_BY_OPTIONS} />
+                    <CustomSelect label="Noted by"    value={notedBy.name}    onChange={setNotedBy}    options={NOTED_BY_OPTIONS} />
                   </div>
 
                   {/* ── Section Tabs ── */}
                   <div className="rounded-2xl overflow-hidden border border-white/10 shadow-xl">
-
                     <div className="flex border-b border-white/10 bg-black/30">
                       {[
-                        {
-                          label: 'Speed Test Results',
-                          step: 1,
-                          icon: (
-                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                            </svg>
-                          ),
-                          accent: 'blue',
-                        },
-                        {
-                          label: 'Attachments',
-                          step: 2,
-                          icon: (
-                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-                            </svg>
-                          ),
-                          accent: 'purple',
-                        },
+                        { label: 'Speed Test Results', step: 1, icon: (<svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>), accent: 'blue' },
+                        { label: 'Attachments',        step: 2, icon: (<svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>), accent: 'purple' },
                       ].map((tab, i) => {
                         const isActive = activeSectionTab === i;
-                        const isDone = activeSectionTab > i;
+                        const isDone   = activeSectionTab > i;
                         return (
-                          <div
-                            key={i}
-                            onClick={() => { if (i < activeSectionTab) setActiveSectionTab(i); }}
-                            className={`
-                              relative flex-1 flex items-center justify-center gap-2 py-3.5 px-4 text-xs font-semibold tracking-wide uppercase select-none
+                          <div key={i} onClick={() => { if (i < activeSectionTab) setActiveSectionTab(i); }}
+                            className={`relative flex-1 flex items-center justify-center gap-2 py-3.5 px-4 text-xs font-semibold tracking-wide uppercase select-none
                               ${i < activeSectionTab ? 'cursor-pointer' : 'cursor-default'}
-                              ${isActive
-                                ? tab.accent === 'blue' ? 'text-blue-400' : 'text-purple-400'
-                                : isDone ? 'text-gray-400 hover:text-gray-200 transition-colors' : 'text-gray-600'
-                              }
-                            `}
+                              ${isActive ? (tab.accent === 'blue' ? 'text-blue-400' : 'text-purple-400') : isDone ? 'text-gray-400 hover:text-gray-200 transition-colors' : 'text-gray-600'}`}
                           >
-                            {isActive && (
-                              <span className={`absolute inset-0 pointer-events-none ${tab.accent === 'blue' ? 'bg-gradient-to-b from-blue-600/15 to-transparent' : 'bg-gradient-to-b from-purple-600/15 to-transparent'}`} />
-                            )}
+                            {isActive && (<span className={`absolute inset-0 pointer-events-none ${tab.accent === 'blue' ? 'bg-gradient-to-b from-blue-600/15 to-transparent' : 'bg-gradient-to-b from-purple-600/15 to-transparent'}`} />)}
                             <span className="relative flex items-center gap-2">
-                              <span className={`
-                                w-6 h-6 rounded-lg flex items-center justify-center shrink-0
-                                ${isActive
-                                  ? tab.accent === 'blue' ? 'bg-blue-500/30 text-blue-400' : 'bg-purple-500/30 text-purple-400'
-                                  : isDone ? 'bg-white/10 text-gray-300' : 'bg-white/5 text-gray-600'
-                                }
-                              `}>
-                                {isDone ? (
-                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                                  </svg>
-                                ) : tab.icon}
+                              <span className={`w-6 h-6 rounded-lg flex items-center justify-center shrink-0 ${isActive ? (tab.accent === 'blue' ? 'bg-blue-500/30 text-blue-400' : 'bg-purple-500/30 text-purple-400') : isDone ? 'bg-white/10 text-gray-300' : 'bg-white/5 text-gray-600'}`}>
+                                {isDone ? (<svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>) : tab.icon}
                               </span>
                               {tab.label}
                             </span>
-                            {isActive && (
-                              <span className={`absolute bottom-0 left-1/2 -translate-x-1/2 h-0.5 w-16 rounded-full ${tab.accent === 'blue' ? 'bg-blue-500' : 'bg-purple-500'}`} />
-                            )}
-                            {i < 1 && (
-                              <span className="absolute right-0 top-1/2 -translate-y-1/2 h-4 w-px bg-white/10" />
-                            )}
+                            {isActive && (<span className={`absolute bottom-0 left-1/2 -translate-x-1/2 h-0.5 w-16 rounded-full ${tab.accent === 'blue' ? 'bg-blue-500' : 'bg-purple-500'}`} />)}
+                            {i < 1 && (<span className="absolute right-0 top-1/2 -translate-y-1/2 h-4 w-px bg-white/10" />)}
                           </div>
                         );
                       })}
                     </div>
 
-                    {/* ── Panel 0: Speed Test Results ── */}
+                    {/* ── Panel 0: Speed Test ── */}
                     <div className={activeSectionTab === 0 ? 'block' : 'hidden'}>
                       <div className="flex border-b border-white/10 bg-black/20">
                         {speedTests.map((test, index) => {
                           const hasData = test.down || test.up;
                           const isActive = activeSpeedTestTab === index;
                           return (
-                            <button
-                              key={index}
-                              type="button"
-                              onClick={() => setActiveSpeedTestTab(index)}
-                              className={`
-                                relative flex-1 py-3 text-xs font-semibold tracking-wider uppercase transition-all duration-200 cursor-pointer
-                                ${isActive ? 'text-white -translate-y-0.3 scale-105' : 'text-gray-500 hover:text-gray-300'}
-                              `}
+                            <button key={index} type="button" onClick={() => setActiveSpeedTestTab(index)}
+                              className={`relative flex-1 py-3 text-xs font-semibold tracking-wider uppercase transition-all duration-200 cursor-pointer ${isActive ? 'text-white -translate-y-0.3 scale-105' : 'text-gray-500 hover:text-gray-300'}`}
                             >
-                              {isActive && (
-                                <span className="absolute inset-0 bg-gradient-to-b from-blue-600/20 to-transparent pointer-events-none" />
-                              )}
+                              {isActive && (<span className="absolute inset-0 bg-gradient-to-b from-blue-600/20 to-transparent pointer-events-none" />)}
                               <span className="relative flex flex-col items-center gap-1">
                                 <span>AP {index + 1}</span>
-                                {hasData && (
-                                  <span className={`w-1 h-1 rounded-full ${isActive ? 'bg-blue-400' : 'bg-gray-600'}`} />
-                                )}
+                                {hasData && (<span className={`w-1 h-1 rounded-full ${isActive ? 'bg-blue-400' : 'bg-gray-600'}`} />)}
                               </span>
-                              {isActive && (
-                                <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-8 h-0.5 bg-blue-500 rounded-full" />
-                              )}
+                              {isActive && (<span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-8 h-0.5 bg-blue-500 rounded-full" />)}
                             </button>
                           );
                         })}
                       </div>
-
                       <div className="bg-black/10 p-5">
                         {speedTests.map((test, index) => (
                           <div key={index} className={activeSpeedTestTab === index ? 'block' : 'hidden'}>
                             <div className="grid grid-cols-2 gap-4">
-                              {/* Download */}
                               <div className="rounded-xl bg-gradient-to-br from-cyan-500/10 to-cyan-400/5 border border-cyan-500/20 p-4 hover:border-cyan-500/40 transition-all duration-200">
                                 <div className="flex items-center gap-2 mb-3">
                                   <div className="w-7 h-7 rounded-lg bg-cyan-500/20 flex items-center justify-center">
-                                    <svg className="w-3.5 h-3.5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
-                                    </svg>
+                                    <svg className="w-3.5 h-3.5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 14l-7 7m0 0l-7-7m7 7V3" /></svg>
                                   </div>
                                   <label className="text-xs font-semibold text-cyan-400 uppercase tracking-wider">Download</label>
                                 </div>
-                                <input
-                                  type="text"
-                                  placeholder="0.00"
-                                  value={test.down}
-                                  onChange={(e) => {
-                                    const val = e.target.value;
-                                    if (val === '' || /^\d*\.?\d*$/.test(val)) {
-                                      handleSpeedTestChange(index, 'down', val);
-                                    }
-                                  }}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') {
-                                    e.preventDefault();
-                                    handleNextClick();
-                                  }
-                                }}
-                                  className="w-full bg-transparent outline-none text-2xl font-bold text-white placeholder-white/20 text-center transition-all"
-                                />
+                                <input type="text" placeholder="0.00" value={test.down}
+                                  onChange={(e) => { const val = e.target.value; if (val === '' || /^\d*\.?\d*$/.test(val)) handleSpeedTestChange(index, 'down', val); }}
+                                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleNextClick(); } }}
+                                  className="w-full bg-transparent outline-none text-2xl font-bold text-white placeholder-white/20 text-center transition-all" />
                                 <p className="text-center text-xs text-cyan-400/50 mt-1">Mbps</p>
                               </div>
-                              {/* Upload */}
                               <div className="rounded-xl bg-gradient-to-br from-purple-500/10 to-purple-400/5 border border-purple-500/20 p-4 hover:border-purple-500/40 transition-all duration-200">
                                 <div className="flex items-center gap-2 mb-3">
                                   <div className="w-7 h-7 rounded-lg bg-purple-500/20 flex items-center justify-center">
-                                    <svg className="w-3.5 h-3.5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 10l7-7m0 0l7 7m-7-7v18" />
-                                    </svg>
+                                    <svg className="w-3.5 h-3.5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 10l7-7m0 0l7 7m-7-7v18" /></svg>
                                   </div>
                                   <label className="text-xs font-semibold text-purple-400 uppercase tracking-wider">Upload</label>
                                 </div>
-                                <input
-                                  type="text"
-                                  placeholder="0.00"
-                                  value={test.up}
-                                  onChange={(e) => {
-                                    const val = e.target.value;
-                                    if (val === '' || /^\d*\.?\d*$/.test(val)) {
-                                      handleSpeedTestChange(index, 'up', val);
-                                    }
-                                  }}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') {
-                                    e.preventDefault();
-                                    handleNextClick();
-                                  }
-                                }}
-                                  className="w-full bg-transparent outline-none text-2xl font-bold text-white placeholder-white/20 text-center transition-all"
-                                />
+                                <input type="text" placeholder="0.00" value={test.up}
+                                  onChange={(e) => { const val = e.target.value; if (val === '' || /^\d*\.?\d*$/.test(val)) handleSpeedTestChange(index, 'up', val); }}
+                                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleNextClick(); } }}
+                                  className="w-full bg-transparent outline-none text-2xl font-bold text-white placeholder-white/20 text-center transition-all" />
                                 <p className="text-center text-xs text-purple-400/50 mt-1">Mbps</p>
                               </div>
                             </div>
                           </div>
                         ))}
                       </div>
-
                       <div className="px-5 pb-5 pt-2">
-                        <button
-                          type="button"
-                          onClick={handleNextClick}
+                        <button type="button" onClick={handleNextClick}
                           className="w-full bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 py-3.5 rounded-xl font-bold transition-all shadow-lg shadow-blue-900/20 flex items-center justify-center gap-2 text-sm"
                         >
                           <span>{activeSpeedTestTab < speedTests.length - 1 ? `Next — AP ${activeSpeedTestTab + 2}` : 'Next — Attachments'}</span>
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                          </svg>
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
                         </button>
                       </div>
                     </div>
@@ -1180,6 +1193,61 @@ export default function MonthlyInspectionReport() {
                     {/* ── Panel 1: Attachments ── */}
                     <div className={activeSectionTab === 1 ? 'block' : 'hidden'}>
                       <div className="bg-black/10 p-5 space-y-5">
+
+                        {/* ══ GLOBAL GEOTAG BLOCK ══ */}
+                        <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/5 overflow-hidden">
+                          <div className="px-4 py-2.5 border-b border-emerald-500/15 flex items-center gap-2">
+                            <div className="w-5 h-5 rounded-md bg-emerald-500/20 flex items-center justify-center shrink-0">
+                              {/* Map pin icon */}
+                              <svg className="w-3 h-3 text-emerald-400" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
+                              </svg>
+                            </div>
+                            <span className="text-xs font-semibold text-emerald-400 uppercase tracking-wider">Geotag Info</span>
+                            <span className="ml-auto text-[10px] text-emerald-600 bg-emerald-500/10 px-2 py-0.5 rounded-full">Global — applies to all images</span>
+                          </div>
+                          <div className="p-4 space-y-3">
+                            <div className="flex flex-col gap-1">
+                              <label className="text-[11px] text-gray-400 uppercase tracking-wider">Address Line 1 <span className="normal-case text-gray-600">(City / Region)</span></label>
+                              <input
+                                type="text"
+                                placeholder="e.g. Tacloban City, Eastern Visayas, Philippines"
+                                value={geoAddr1}
+                                onChange={e => setGeoAddr1(e.target.value)}
+                                onKeyDown={e => e.key === 'Enter' && e.preventDefault()}
+                                className="bg-white/5 border border-white/15 rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500/50 placeholder-gray-600 transition-colors"
+                              />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                              <label className="text-[11px] text-gray-400 uppercase tracking-wider">Address Line 2 <span className="normal-case text-gray-600">(Full address / Plus code)</span></label>
+                              <input
+                                type="text"
+                                placeholder="e.g. 62HF+5VF, Tacloban City, Leyte, Philippines"
+                                value={geoAddr2}
+                                onChange={e => setGeoAddr2(e.target.value)}
+                                onKeyDown={e => e.key === 'Enter' && e.preventDefault()}
+                                className="bg-white/5 border border-white/15 rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500/50 placeholder-gray-600 transition-colors"
+                              />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                              <label className="text-[11px] text-gray-400 uppercase tracking-wider">Date <span className="normal-case text-gray-600">(shown on all images)</span></label>
+                              <input
+                                type="text"
+                                placeholder="e.g. 31/01/26"
+                                value={geoDate}
+                                onChange={e => setGeoDate(e.target.value)}
+                                onKeyDown={e => e.key === 'Enter' && e.preventDefault()}
+                                className="bg-white/5 border border-white/15 rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500/50 placeholder-gray-600 transition-colors"
+                              />
+                            </div>
+                            <p className="text-[10px] text-gray-600 pt-1 flex items-center gap-1.5">
+                              <svg className="w-3 h-3 text-gray-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                              Click on an assigned image to add per-image coordinates and time via the geotag tab.
+                            </p>
+                          </div>
+                        </div>
+                        {/* ══ END GEOTAG BLOCK ══ */}
+
                         <div className="grid grid-cols-2 gap-4">
                           {/* Communication Box */}
                           <div className="rounded-xl border border-white/10 bg-white/5 overflow-hidden">
@@ -1191,27 +1259,29 @@ export default function MonthlyInspectionReport() {
                               {comboxImage ? (
                                 <div className="relative group rounded-lg overflow-hidden aspect-square bg-black/20">
                                   <img src={comboxImage.url} alt="Combox" className="w-full h-full object-cover" />
+                                  {/* geotag badge */}
+                                  {(imageGeotags['combox']?.lat || imageGeotags['combox']?.time) && (
+                                    <div className="absolute top-1.5 left-1.5 bg-emerald-500/80 backdrop-blur-sm text-white text-[8px] font-bold px-1.5 py-0.5 rounded-md flex items-center gap-1">
+                                      <svg className="w-2 h-2" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" /></svg>
+                                      Tagged
+                                    </div>
+                                  )}
                                   <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                                    <button type="button" onClick={() => setLightboxImage(comboxImage.url)} className="w-8 h-8 bg-white/20 hover:bg-white/40 rounded-full flex items-center justify-center transition-colors">
+                                    <button type="button" onClick={() => openLightbox(comboxImage.url, { zone: 'single', key: 'combox' })}
+                                      className="w-8 h-8 bg-white/20 hover:bg-white/40 rounded-full flex items-center justify-center transition-colors">
                                       <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
                                     </button>
-                                    <button type="button" onClick={() => setComboxImage(null)} className="w-8 h-8 bg-red-500/80 hover:bg-red-500 rounded-full flex items-center justify-center transition-colors">
+                                    <button type="button" onClick={() => setComboxImage(null)}
+                                      className="w-8 h-8 bg-red-500/80 hover:bg-red-500 rounded-full flex items-center justify-center transition-colors">
                                       <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                                     </button>
                                   </div>
                                 </div>
                               ) : (
-                                <button 
-                                  type="button"
-                                  onClick={() => { setAssigningTarget({ type: 'combox', label: 'Communication Box' }); setShowGalleryModal(true); }}
-                                  className="w-full flex flex-col items-center justify-center aspect-square rounded-lg border-2 border-dashed border-white/5 bg-black/20 text-gray-600 hover:border-blue-500/40 hover:bg-blue-500/5 hover:text-blue-400 transition-all group"
-                                >
-                                  <svg className="w-6 h-6 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                                  </svg>
-                                  <span className="text-[10px] text-center px-2">
-                                    Assign from gallery
-                                  </span>
+                                <button type="button" onClick={() => { setAssigningTarget({ type: 'combox', label: 'Communication Box' }); setShowGalleryModal(true); }}
+                                  className="w-full flex flex-col items-center justify-center aspect-square rounded-lg border-2 border-dashed border-white/5 bg-black/20 text-gray-600 hover:border-blue-500/40 hover:bg-blue-500/5 hover:text-blue-400 transition-all group">
+                                  <svg className="w-6 h-6 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                                  <span className="text-[10px] text-center px-2">Assign from gallery</span>
                                 </button>
                               )}
                             </div>
@@ -1227,27 +1297,28 @@ export default function MonthlyInspectionReport() {
                               {siteInspectionImage ? (
                                 <div className="relative group rounded-lg overflow-hidden aspect-square bg-black/20">
                                   <img src={siteInspectionImage.url} alt="Site" className="w-full h-full object-cover" />
+                                  {(imageGeotags['inspection']?.lat || imageGeotags['inspection']?.time) && (
+                                    <div className="absolute top-1.5 left-1.5 bg-emerald-500/80 backdrop-blur-sm text-white text-[8px] font-bold px-1.5 py-0.5 rounded-md flex items-center gap-1">
+                                      <svg className="w-2 h-2" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" /></svg>
+                                      Tagged
+                                    </div>
+                                  )}
                                   <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                                    <button type="button" onClick={() => setLightboxImage(siteInspectionImage.url)} className="w-8 h-8 bg-white/20 hover:bg-white/40 rounded-full flex items-center justify-center transition-colors">
+                                    <button type="button" onClick={() => openLightbox(siteInspectionImage.url, { zone: 'single', key: 'inspection' })}
+                                      className="w-8 h-8 bg-white/20 hover:bg-white/40 rounded-full flex items-center justify-center transition-colors">
                                       <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
                                     </button>
-                                    <button type="button" onClick={() => setSiteInspectionImage(null)} className="w-8 h-8 bg-red-500/80 hover:bg-red-500 rounded-full flex items-center justify-center transition-colors">
+                                    <button type="button" onClick={() => setSiteInspectionImage(null)}
+                                      className="w-8 h-8 bg-red-500/80 hover:bg-red-500 rounded-full flex items-center justify-center transition-colors">
                                       <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                                     </button>
                                   </div>
                                 </div>
                               ) : (
-                                <button 
-                                  type="button"
-                                  onClick={() => { setAssigningTarget({ type: 'inspection', label: 'Site Inspection' }); setShowGalleryModal(true); }}
-                                  className="w-full flex flex-col items-center justify-center aspect-square rounded-lg border-2 border-dashed border-white/5 bg-black/20 text-gray-600 hover:border-blue-500/40 hover:bg-blue-500/5 hover:text-blue-400 transition-all group"
-                                >
-                                  <svg className="w-6 h-6 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                                  </svg>
-                                  <span className="text-[10px] text-center px-2">
-                                    Assign from gallery
-                                  </span>
+                                <button type="button" onClick={() => { setAssigningTarget({ type: 'inspection', label: 'Site Inspection' }); setShowGalleryModal(true); }}
+                                  className="w-full flex flex-col items-center justify-center aspect-square rounded-lg border-2 border-dashed border-white/5 bg-black/20 text-gray-600 hover:border-blue-500/40 hover:bg-blue-500/5 hover:text-blue-400 transition-all group">
+                                  <svg className="w-6 h-6 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                                  <span className="text-[10px] text-center px-2">Assign from gallery</span>
                                 </button>
                               )}
                             </div>
@@ -1256,60 +1327,53 @@ export default function MonthlyInspectionReport() {
 
                         {/* Multi-image rows */}
                         {[
-                          { label: 'Equipment Photos', sublabel: 'Access points, cables, hardware', zone: 'equipment', images: additionalImages, setter: setAdditionalImages },
-                          { label: 'Speedtest Results', sublabel: 'Bandwidth test screenshots', zone: 'speedtest', images: speedtestImages, setter: setSpeedtestImages },
-                        ].map(({ label, sublabel, zone, images, setter }) => (
+                          { label: 'Equipment Photos', sublabel: 'Access points, cables, hardware', zone: 'equipment', images: additionalImages, setter: setAdditionalImages, keyPrefix: 'equipment' },
+                          { label: 'Speedtest Results', sublabel: 'Bandwidth test screenshots',     zone: 'speedtest', images: speedtestImages,   setter: setSpeedtestImages,   keyPrefix: 'speedtest' },
+                        ].map(({ label, sublabel, zone, images, setter, keyPrefix }) => (
                           <div key={label} className="rounded-xl border border-white/10 bg-white/5 overflow-hidden">
                             <div className="px-4 py-2.5 border-b border-white/10 flex items-center justify-between">
                               <div>
                                 <span className="text-xs font-semibold text-gray-300 uppercase tracking-wider">{label}</span>
                                 <p className="text-[10px] text-gray-600 mt-0.5">{sublabel}</p>
                               </div>
-                              <span className="text-[10px] text-gray-500 bg-white/5 px-2 py-0.5 rounded-full">
-                                {images.length} / 4
-                              </span>
+                              <span className="text-[10px] text-gray-500 bg-white/5 px-2 py-0.5 rounded-full">{images.length} / 4</span>
                             </div>
                             <div className="p-4">
                               <div className="grid grid-cols-4 gap-3">
-                                {images.map((img, idx) => (
-                                  <div key={idx} className="relative group aspect-square rounded-xl overflow-hidden bg-black/20 border border-white/10 hover:border-white/20 transition-all shadow-md">
-                                    <img src={img.url} alt={`${label} ${idx}`} className="w-full h-full object-cover" />
-                                    <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                                    <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                     setLightboxImage(img.url);  // Open lightbox with the selected image
-                                     setLightboxMeta({ zone: zone === 'equipment' ? 'equipment' : 'speedtest', index: idx });
-                                      const key = `${zone}-${idx}`;
-                                      const saved = imageAdjustments[key];
-                                      setBrightness(saved?.brightness ?? 0);
-                                     setContrast(saved?.contrast ?? 0);
-                                       setSharpness(saved?.sharpness ?? 0);
-                                        }}
-                                        className="w-8 h-8 bg-white/20 hover:bg-white/40 backdrop-blur-sm rounded-full flex items-center justify-center transition-all hover:scale-110"
-                                      >
-                                        <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
-                                      </button>
-                                      <button type="button" onClick={() => removeImage(idx, setter)} className="w-8 h-8 bg-red-500/80 hover:bg-red-500 backdrop-blur-sm rounded-full flex items-center justify-center transition-all hover:scale-110">
-                                        <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                                      </button>
+                                {images.map((img, idx) => {
+                                  const key = `${keyPrefix}-${idx}`;
+                                  const isTagged = imageGeotags[key]?.lat || imageGeotags[key]?.time;
+                                  return (
+                                    <div key={idx} className="relative group aspect-square rounded-xl overflow-hidden bg-black/20 border border-white/10 hover:border-white/20 transition-all shadow-md">
+                                      <img src={img.url} alt={`${label} ${idx}`} className="w-full h-full object-cover" />
+                                      {isTagged && (
+                                        <div className="absolute top-1 left-1 bg-emerald-500/80 backdrop-blur-sm text-white text-[7px] font-bold px-1 py-0.5 rounded flex items-center gap-0.5">
+                                          <svg className="w-2 h-2" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" /></svg>
+                                          Tagged
+                                        </div>
+                                      )}
+                                      <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                                      <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                                        <button type="button"
+                                          onClick={() => openLightbox(img.url, { zone: keyPrefix, index: idx, key })}
+                                          className="w-8 h-8 bg-white/20 hover:bg-white/40 backdrop-blur-sm rounded-full flex items-center justify-center transition-all hover:scale-110">
+                                          <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                        </button>
+                                        <button type="button" onClick={() => removeImage(idx, setter)}
+                                          className="w-8 h-8 bg-red-500/80 hover:bg-red-500 backdrop-blur-sm rounded-full flex items-center justify-center transition-all hover:scale-110">
+                                          <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                        </button>
+                                      </div>
+                                      <div className="absolute bottom-1.5 right-1.5 bg-black/50 backdrop-blur-sm text-[9px] text-white/60 px-1.5 py-0.5 rounded-md font-medium">{idx + 1}</div>
                                     </div>
-                                    <div className="absolute bottom-1.5 right-1.5 bg-black/50 backdrop-blur-sm text-[9px] text-white/60 px-1.5 py-0.5 rounded-md font-medium">
-                                      {idx + 1}
-                                    </div>
-                                  </div>
-                                ))}
+                                  );
+                                })}
                                 {images.length < 4 && (
-                                  <button 
-                                    type="button"
-                                    onClick={() => { setAssigningTarget({ type: zone === 'equipment' ? 'equipment' : 'speedtest', label: label }); setShowGalleryModal(true); }}
-                                    className="aspect-square rounded-xl border-2 border-dashed border-white/5 flex flex-col items-center justify-center bg-black/10 text-gray-600 hover:border-blue-500/40 hover:bg-blue-500/5 hover:text-blue-400 transition-all group"
-                                  >
+                                  <button type="button"
+                                    onClick={() => { setAssigningTarget({ type: zone === 'equipment' ? 'equipment' : 'speedtest', label }); setShowGalleryModal(true); }}
+                                    className="aspect-square rounded-xl border-2 border-dashed border-white/5 flex flex-col items-center justify-center bg-black/10 text-gray-600 hover:border-blue-500/40 hover:bg-blue-500/5 hover:text-blue-400 transition-all group">
                                     <div className="w-8 h-8 rounded-full flex items-center justify-center bg-white/5 mb-1 group-hover:bg-blue-500/20 transition-colors">
-                                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                                      </svg>
+                                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
                                     </div>
                                     <span className="text-[9px] font-medium">Assign from gallery</span>
                                   </button>
@@ -1320,25 +1384,13 @@ export default function MonthlyInspectionReport() {
                         ))}
                       </div>
 
-                      {/* Generate button */}
                       <div className="pt-2">
-                        <button
-                          disabled={isGenerating}
-                          type="submit"
-                          className="w-full bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 py-3.5 rounded-xl font-bold transition-all shadow-lg shadow-blue-900/20 flex items-center justify-center gap-2 text-sm disabled:opacity-60 disabled:cursor-not-allowed"
-                        >
+                        <button disabled={isGenerating} type="submit"
+                          className="w-full bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 py-3.5 rounded-xl font-bold transition-all shadow-lg shadow-blue-900/20 flex items-center justify-center gap-2 text-sm disabled:opacity-60 disabled:cursor-not-allowed">
                           {isGenerating ? (
-                            <>
-                              <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                              Generating...
-                            </>
+                            <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Generating...</>
                           ) : (
-                            <>
-                              <span>Generate Monthly Report</span>
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                              </svg>
-                            </>
+                            <><span>Generate Monthly Report</span><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg></>
                           )}
                         </button>
                       </div>
@@ -1352,33 +1404,21 @@ export default function MonthlyInspectionReport() {
             <div className="bg-white/5 rounded-2xl border border-white/10 min-h-[900px] flex flex-col overflow-hidden shadow-2xl animate-in fade-in slide-in-from-bottom-4 duration-500">
               <div className="bg-white/10 p-4 border-b border-white/10 flex justify-between items-center backdrop-blur-md">
                 <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setPdfUrl(null)}
-                    className="flex items-center gap-2 text-sm font-medium text-gray-300 hover:text-white bg-white/5 hover:bg-white/10 px-4 py-2 rounded-lg transition-all"
-                  >
+                  <button onClick={() => setPdfUrl(null)}
+                    className="flex items-center gap-2 text-sm font-medium text-gray-300 hover:text-white bg-white/5 hover:bg-white/10 px-4 py-2 rounded-lg transition-all">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
                     Back to Configuration
                   </button>
-                  <button
-                    onClick={handleSavePDF}
-                    disabled={isSaving}
-                    className="flex items-center gap-2 text-sm font-medium text-white bg-green-600 hover:bg-green-700 px-4 py-2 rounded-lg transition-all shadow-lg shadow-green-900/20 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {isSaving ? (
-                      <span className="flex items-center gap-2"><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Saving...</span>
-                    ) : (
-                      <>
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" /></svg>
-                        Save PDF
-                      </>
+                  <button onClick={handleSavePDF} disabled={isSaving}
+                    className="flex items-center gap-2 text-sm font-medium text-white bg-green-600 hover:bg-green-700 px-4 py-2 rounded-lg transition-all shadow-lg shadow-green-900/20 disabled:opacity-50 disabled:cursor-not-allowed">
+                    {isSaving ? (<span className="flex items-center gap-2"><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Saving...</span>) : (
+                      <><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" /></svg>Save PDF</>
                     )}
                   </button>
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="text-sm font-medium text-gray-300">PDF Preview</span>
-                  <button onClick={() => window.open(pdfUrl)} className="text-xs bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-md transition-colors shadow-lg shadow-blue-900/20">
-                    Open in New Tab
-                  </button>
+                  <button onClick={() => window.open(pdfUrl)} className="text-xs bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-md transition-colors shadow-lg shadow-blue-900/20">Open in New Tab</button>
                 </div>
               </div>
               <div className="flex-1 flex items-center justify-center bg-gray-900/50">
@@ -1389,62 +1429,59 @@ export default function MonthlyInspectionReport() {
         </div>
       </div>
 
-      {/* ── Image Editor Lightbox ── */}
+      {/* ══ IMAGE EDITOR LIGHTBOX (with Geotag tab) ══ */}
       {lightboxImage && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-gray-950 border border-white/10 rounded-2xl shadow-2xl flex flex-col w-full max-w-3xl overflow-hidden">
 
-            {/* SVG filter for sharpness */}
+            {/* SVG sharpness filter */}
             <svg width="0" height="0" style={{ position: 'absolute' }}>
               <defs>
                 <filter id="sharpness-filter" x="0%" y="0%" width="100%" height="100%">
-                  <feConvolveMatrix
-                    order="3"
-                    kernelMatrix={
-                      sharpness === 0
-                        ? '0 0 0 0 1 0 0 0 0'
-                        : (() => {
-                            const k = (sharpness / 100) * 3;
-                            return `0 ${-k} 0 ${-k} ${1 + 4 * k} ${-k} 0 ${-k} 0`;
-                          })()
-                    }
-                    preserveAlpha="true"
-                  />
+                  <feConvolveMatrix order="3"
+                    kernelMatrix={sharpness === 0 ? '0 0 0 0 1 0 0 0 0' : (() => { const k=(sharpness/100)*3; return `0 ${-k} 0 ${-k} ${1+4*k} ${-k} 0 ${-k} 0`; })()}
+                    preserveAlpha="true" />
                 </filter>
               </defs>
             </svg>
 
-            {/* Header */}
-            <div className="flex items-center justify-between px-5 py-3 border-b border-white/8">
-              <span className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Image Editor</span>
-              <button
-                type="button"
-                onClick={() => { setLightboxImage(null); setLightboxMeta(null); }}
-                className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-500 hover:text-white hover:bg-white/10 transition-all"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
+            {/* Header with tabs */}
+            <div className="flex items-center justify-between px-5 py-0 border-b border-white/8">
+              <div className="flex">
+                {[
+                  { id: 'edit',   label: 'Edit Image' },
+                  { id: 'geotag', label: 'Geotag' },
+                ].map(tab => (
+                  <button key={tab.id} type="button" onClick={() => setLightboxTab(tab.id)}
+                    className={`px-4 py-3.5 text-xs font-semibold uppercase tracking-wider transition-colors border-b-2 -mb-px
+                      ${lightboxTab === tab.id
+                        ? (tab.id === 'geotag' ? 'text-emerald-400 border-emerald-500' : 'text-blue-400 border-blue-500')
+                        : 'text-gray-500 border-transparent hover:text-gray-300'}`}
+                  >
+                    {tab.id === 'geotag' && (
+                      <span className="inline-flex items-center gap-1.5">
+                        <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" /></svg>
+                        {tab.label}
+                      </span>
+                    )}
+                    {tab.id !== 'geotag' && tab.label}
+                  </button>
+                ))}
+              </div>
+              <button type="button" onClick={() => { setLightboxImage(null); setLightboxMeta(null); }}
+                className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-500 hover:text-white hover:bg-white/10 transition-all mr-1">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             </div>
 
             {/* Image Preview */}
-            <div className="relative bg-black flex items-center justify-center" style={{ minHeight: 380 }}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={lightboxImage}
-                alt="Preview"
-                className="max-w-full max-h-[480px] object-contain"
-                style={{
-                  filter: lightboxMeta
-                    ? `brightness(${100 + brightness}%) contrast(${100 + contrast}%) url(#sharpness-filter)`
-                    : 'none'
-                }}
-              />
+            <div className="relative bg-black flex items-center justify-center" style={{ minHeight: 320 }}>
+              <img src={lightboxImage} alt="Preview" className="max-w-full max-h-[380px] object-contain"
+                style={{ filter: lightboxTab === 'edit' ? `brightness(${100+brightness}%) contrast(${100+contrast}%) url(#sharpness-filter)` : 'none' }} />
             </div>
 
-            {/* Sliders */}
-            {lightboxMeta && (
+            {/* Edit tab: sliders */}
+            {lightboxTab === 'edit' && (
               <div className="px-5 py-4 space-y-3 border-t border-white/8">
                 {[
                   { label: 'Brightness', value: brightness, setter: setBrightness, color: '#facc15' },
@@ -1453,57 +1490,65 @@ export default function MonthlyInspectionReport() {
                 ].map(({ label, value, setter, color }) => (
                   <div key={label} className="flex items-center gap-3">
                     <span className="text-[11px] font-medium text-gray-500 w-20 shrink-0 uppercase tracking-wider">{label}</span>
-                    <input
-                      type="range" min={-100} max={100} step={1} value={value}
+                    <input type="range" min={-100} max={100} step={1} value={value}
                       onChange={(e) => setter(Number(e.target.value))}
                       className="flex-1 h-1 rounded-full appearance-none bg-white/10 cursor-pointer"
-                      style={{ accentColor: color }}
-                    />
-                    <span className="text-xs tabular-nums text-gray-400 w-9 text-right">
-                      {value > 0 ? `+${value}` : value}
-                    </span>
+                      style={{ accentColor: color }} />
+                    <span className="text-xs tabular-nums text-gray-400 w-9 text-right">{value > 0 ? `+${value}` : value}</span>
                   </div>
                 ))}
               </div>
             )}
 
+            {/* Geotag tab: per-image fields */}
+            {lightboxTab === 'geotag' && lightboxMeta && (
+              <div className="px-5 py-4 border-t border-white/8">
+                <GeotageFields
+                  imgKey={lightboxMeta.key}
+                  geotag={imageGeotags[lightboxMeta.key] || {}}
+                  geoAddr1={geoAddr1}
+                  geoAddr2={geoAddr2}
+                  geoDate={geoDate}
+                  onUpdate={updateImageGeotag}
+                />
+              </div>
+            )}
+
             {/* Action Buttons */}
-            <div className="flex items-center gap-2 px-7 py-4 border-t border-white/8">
-              <button
-                type="button"
-                onClick={() => { setLightboxImage(null); setLightboxMeta(null); }}
-                className="px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-xs font-medium text-gray-400 hover:text-white transition-all"
-              >
-                Cancel
+            <div className="flex items-center gap-2 px-5 py-4 border-t border-white/8">
+              <button type="button" onClick={() => { setLightboxImage(null); setLightboxMeta(null); }}
+                className="px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-xs font-medium text-gray-400 hover:text-white transition-all">
+                Close
               </button>
-              {lightboxMeta && (
+              {lightboxTab === 'edit' && (
                 <>
-                  <button
-                    type="button"
-                    onClick={() => { setBrightness(0); setContrast(0); setSharpness(0); }}
-                    className="px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-xs font-medium text-amber-400 hover:text-amber-300 transition-all"
-                  >
+                  <button type="button" onClick={() => { setBrightness(0); setContrast(0); setSharpness(0); }}
+                    className="px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-xs font-medium text-amber-400 hover:text-amber-300 transition-all">
                     Restore
                   </button>
-                  <button
-                    type="button"
+                  <button type="button"
                     onClick={async () => {
                       const adjusted = await applyImageAdjustments(lightboxImage, brightness, contrast, sharpness);
-                      const key = `${lightboxMeta.zone}-${lightboxMeta.index}`;
-                      setImageAdjustments(prev => ({ ...prev, [key]: { brightness, contrast, sharpness } }));
-                      if (lightboxMeta.zone === 'equipment') {
+                      const key = lightboxMeta?.key;
+                      if (key) setImageAdjustments(prev => ({ ...prev, [key]: { brightness, contrast, sharpness } }));
+                      if (lightboxMeta?.zone === 'equipment') {
                         setAdditionalImages(prev => prev.map((img, i) => i === lightboxMeta.index ? { ...img, url: adjusted } : img));
-                      } else {
+                      } else if (lightboxMeta?.zone === 'speedtest') {
                         setSpeedtestImages(prev => prev.map((img, i) => i === lightboxMeta.index ? { ...img, url: adjusted } : img));
                       }
-                      setLightboxImage(null);
-                      setLightboxMeta(null);
+                      setLightboxImage(null); setLightboxMeta(null);
                     }}
-                    className="ml-auto px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-xs font-semibold text-white transition-all"
-                  >
+                    className="ml-auto px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-xs font-semibold text-white transition-all">
                     Apply & Save
                   </button>
                 </>
+              )}
+              {lightboxTab === 'geotag' && (
+                <button type="button" onClick={() => { setLightboxImage(null); setLightboxMeta(null); }}
+                  className="ml-auto px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold text-white transition-all flex items-center gap-1.5">
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                  Save Geotag
+                </button>
               )}
             </div>
 
@@ -1520,14 +1565,10 @@ export default function MonthlyInspectionReport() {
                 <h3 className="text-lg font-bold text-white">Select from Site Gallery</h3>
                 <p className="text-xs text-gray-400">Choose an image to assign to <span className="text-blue-400 font-semibold">{assigningTarget?.label}</span></p>
               </div>
-              <button 
-                onClick={() => setShowGalleryModal(false)}
-                className="p-2 hover:bg-white/10 rounded-full transition-colors"
-              >
+              <button onClick={() => setShowGalleryModal(false)} className="p-2 hover:bg-white/10 rounded-full transition-colors">
                 <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             </div>
-            
             <div className="p-6 overflow-y-auto grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
               {siteGallery.length === 0 ? (
                 <div className="col-span-full py-20 text-center">
@@ -1535,11 +1576,8 @@ export default function MonthlyInspectionReport() {
                 </div>
               ) : (
                 siteGallery.map((img, i) => (
-                  <div 
-                    key={i}
-                    onClick={() => handleSelectFromGallery(img)}
-                    className={`relative group aspect-square rounded-xl overflow-hidden border-2 cursor-pointer transition-all hover:scale-[1.02] active:scale-95 ${img.isMir ? 'border-blue-500/50 shadow-lg shadow-blue-500/10' : 'border-white/5 hover:border-white/20'}`}
-                  >
+                  <div key={i} onClick={() => handleSelectFromGallery(img)}
+                    className={`relative group aspect-square rounded-xl overflow-hidden border-2 cursor-pointer transition-all hover:scale-[1.02] active:scale-95 ${img.isMir ? 'border-blue-500/50 shadow-lg shadow-blue-500/10' : 'border-white/5 hover:border-white/20'}`}>
                     <img src={img.url} className="w-full h-full object-cover" alt="" />
                     <div className="absolute inset-0 bg-blue-600/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                       <span className="bg-white text-blue-600 text-[10px] font-bold px-4 py-2 rounded-full uppercase tracking-wider shadow-xl">Select Image</span>
