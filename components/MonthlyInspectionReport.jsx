@@ -347,57 +347,57 @@ export default function MonthlyInspectionReport() {
 
       // ── Updated drawFooter using selected signatories ──
       const drawFooter = () => {
-  const footerY = pageHeight - 55;
-  doc.setFontSize(10);
-  doc.setFont('Palatino', 'italic');
-  doc.text("Notes: Photos should have Geotagging (coordinates, date and time stamp)", 15, footerY);
+        const footerY = pageHeight - 55;
+        doc.setFontSize(10);
+        doc.setFont('Palatino', 'italic');
+        doc.text("Notes: Photos should have Geotagging (coordinates, date and time stamp)", 15, footerY);
 
-  const drawSignatory = (label, person, x, y, fixedLabelWidth = null) => {
-    doc.setFont('Palatino', 'normal');
-    const labelW = doc.getTextWidth(label);
+        const drawSignatory = (label, person, x, y, fixedLabelWidth = null) => {
+          doc.setFont('Palatino', 'normal');
+          const labelW = doc.getTextWidth(label);
 
-    // If fixedLabelWidth is provided, right-align the label
-    const actualLabelWidth = fixedLabelWidth ?? labelW;
-    doc.text(label, x + (actualLabelWidth - labelW), y);
+          // If fixedLabelWidth is provided, right-align the label
+          const actualLabelWidth = fixedLabelWidth ?? labelW;
+          doc.text(label, x + (actualLabelWidth - labelW), y);
 
-    // Name (bold)
-    doc.setFont('Palatino', 'bold');
-    doc.text(person.name, x + actualLabelWidth, y);
+          // Name (bold)
+          doc.setFont('Palatino', 'bold');
+          doc.text(person.name, x + actualLabelWidth, y);
 
-    // Underline under name only
-    const nameWidth = doc.getTextWidth(person.name);
-    doc.setLineWidth(0.3);
-    doc.line(x + actualLabelWidth, y + 1, x + actualLabelWidth + nameWidth, y + 1);
+          // Underline under name only
+          const nameWidth = doc.getTextWidth(person.name);
+          doc.setLineWidth(0.3);
+          doc.line(x + actualLabelWidth, y + 1, x + actualLabelWidth + nameWidth, y + 1);
 
-    // Roles centered under name
-    const nameCenterX = x + actualLabelWidth + nameWidth / 2;
-    doc.setFont('Palatino', 'normal');
-    person.lines.forEach((line, i) => {
-      const lineWidth = doc.getTextWidth(line);
-      doc.text(line, nameCenterX - lineWidth / 2, y + 5.5 + (i * 5));
-    });
-  };
+          // Roles centered under name
+          const nameCenterX = x + actualLabelWidth + nameWidth / 2;
+          doc.setFont('Palatino', 'normal');
+          person.lines.forEach((line, i) => {
+            const lineWidth = doc.getTextWidth(line);
+            doc.text(line, nameCenterX - lineWidth / 2, y + 5.5 + (i * 5));
+          });
+        };
 
-  const leftX = 15;
-  const rightX = pageWidth / 2 + 10;
-  const fixedWidth = 22; //  adjust to align colons of Checked by and Noted by
+        const leftX = 15;
+        const rightX = pageWidth / 2 + 10;
+        const fixedWidth = 22; //  adjust to align colons of Checked by and Noted by
 
-  drawSignatory("Prepared by: ", preparedBy, leftX, footerY + 12); // no fixed width
-  drawSignatory("Checked by: ", checkedBy, rightX, footerY + 12, fixedWidth); // aligned
-  drawSignatory("Noted by: ", notedBy, rightX, footerY + 30, fixedWidth);     // aligned
-}; // ── Updated drawFooter using selected signatories ──
- 
-    //adding image with aspect ration
-     const addImageToPage = (imgData, x, y, maxWidth, maxHeight) => {
-  if (imgData) {
-    try {
-      doc.addImage(imgData, 'JPEG', x, y, maxWidth, maxHeight);
-    } catch (error) {
-      console.warn("Error adding image to PDF", error);
-      doc.text("[Image Error]", x + maxWidth / 2, y + maxHeight / 2, { align: 'center' });
-    }
-  }
-};
+        drawSignatory("Prepared by: ", preparedBy, leftX, footerY + 12); // no fixed width
+        drawSignatory("Checked by: ", checkedBy, rightX, footerY + 12, fixedWidth); // aligned
+        drawSignatory("Noted by: ", notedBy, rightX, footerY + 30, fixedWidth);     // aligned
+      }; // ── Updated drawFooter using selected signatories ──
+      
+          //adding image with aspect ration
+        const addImageToPage = (imgData, x, y, maxWidth, maxHeight) => {
+        if (imgData) {
+          try {
+            doc.addImage(imgData, 'JPEG', x, y, maxWidth, maxHeight);
+          } catch (error) {
+            console.warn("Error adding image to PDF", error);
+            doc.text("[Image Error]", x + maxWidth / 2, y + maxHeight / 2, { align: 'center' });
+          }
+        }
+      };
 
       const drawImageGrid = (images, startY, containerHeight) => {
         const gap = 10;
