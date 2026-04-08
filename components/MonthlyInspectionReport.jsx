@@ -104,6 +104,7 @@ const expandSiteType = (siteName) => {
     'CNNHS' : 'City National Night High School',
     'SES' :'South Elementary School',
     'NES' :'North Elementary School',
+    'BPSU' : 'Province State University',
   };
 
   for (const [abbr, fullName] of Object.entries(abbreviations)) {
@@ -119,7 +120,7 @@ const expandSiteType = (siteName) => {
 };
 
 const PREPARED_BY_OPTIONS = [
-  { name: 'Engr. Jason Ilde Y. Aguihon, ETC', lines: ['Project Engineer'] },
+  { name: 'Engr. Jason Ilde Y. Aguihon, ECT', lines: ['Project Engineer'] },
   { name: 'Engr. Eduardo M. Dela Cruz Jr, ECT', lines: ['Project Engineer'] },
 ];
 
@@ -923,7 +924,7 @@ export default function MonthlyInspectionReport() {
       let currentY = 42;
       doc.setFontSize(11);
       doc.setFont('Palatino', 'bold');
-      doc.text("ATTACHMENT 1: EQUIPMENT PHOTOS", pageWidth / 2, currentY, { align: 'center' });
+      doc.text("ATTACHMENT 1: COMMUNICATION BOX", pageWidth / 2, currentY, { align: 'center' });
       currentY += 5;
       const sectionHeight = 190;
       doc.setDrawColor(0); doc.setLineWidth(0.1);
@@ -948,7 +949,7 @@ export default function MonthlyInspectionReport() {
         doc.setFontSize(11);
         doc.setFont('Palatino', 'bold');
         const titleY = 42;
-        doc.text("ATTACHMENT 1: EQUIPMENT PHOTOS (Access Points)", pageWidth / 2, titleY, { align: 'center' });
+        doc.text("ATTACHMENT 1: ACCESS POINTS", pageWidth / 2, titleY, { align: 'center' });
         const gridStartY  = titleY + 5;
         const gridHeight  = pageHeight - gridStartY - 65;
         doc.rect(12.7, gridStartY, pageWidth - 12.7 * 2, gridHeight);
@@ -981,7 +982,7 @@ export default function MonthlyInspectionReport() {
       doc.setFontSize(11);
       doc.setFont('Palatino', 'bold');
       const siteTitleY = 42;
-      doc.text("ATTACHMENT 3: SITE INSPECTION PICTURES", pageWidth / 2, siteTitleY, { align: 'center' });
+      doc.text("ATTACHMENT 3: SITE BENEFICIARY", pageWidth / 2, siteTitleY, { align: 'center' });
       const siteSectionY = siteTitleY + 5;
       doc.rect(15, siteSectionY, pageWidth - 30, sectionHeight);
       if (sInspection) {
