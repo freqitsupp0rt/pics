@@ -62,9 +62,17 @@ const expandSiteType = (siteName) => {
     // Site-specific (longest first)
     'RNHS':     'Remandaban National High School',
     'RSHS':     'Remandaban National High School - Senior High School',
+    'Paraiso BH':         'Barangay Paraiso Barangay Hall',
+    'Rizal BH':           'Rizal Barangay Hall - Kananga',
+    'New Ormoc City SHS': 'New Ormoc City National High School - Senior High',
+    'Viga NHS':   'Maripipi National Vocational School) Viga National High School',
+    'Biliran SHS':       'Biliran Science High School',
+    'Cabucgayan Tesda' : 'Tesda - Cabucgayan',
+    'Naval SpedCenter' : 'Naval SPed Center',
+
 
     // Compound types (longest first to avoid partial matches)
-    'CNHS_SHS': 'Comprehensive National High School - Senior High School', // 
+    'CNHS SHS': 'Comprehensive National High School - Senior High School', // 
     'NHS-SHS':  'National High School - Senior High School',
     'NHS-SH':   'National High School - Senior High',
     'SASHS':    'Stand-Alone Senior High School',
@@ -102,9 +110,19 @@ const expandSiteType = (siteName) => {
     'MHO': 'Municipal Health Office',
     'NSAT' : 'National School of Arts and Trade',
     'CNNHS' : 'City National Night High School',
+    'SCS' :'South Central School',
+    'NCS' :'North Central School',
     'SES' :'South Elementary School',
     'NES' :'North Elementary School',
-    'BPSU' : 'Province State University',
+    'WES' :'West Elementary School',
+    'BPSU' : 'Province State University - Biliran Campus',
+    'VS' :  'Vocational School',
+    'COM C' : 'Community College',
+    'SF' : 'School of Fisheries',
+    'NAHS' : 'National Agricultural High School',
+    'MHC' : 'Main Health Center',
+    'CentralBH' : 'Central Barangay Hall',
+    "MHOBH" : "Naval Municipal Health Office and Birthing Home",
   };
 
   for (const [abbr, fullName] of Object.entries(abbreviations)) {
