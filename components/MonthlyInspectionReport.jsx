@@ -163,54 +163,99 @@ async function stampGeotag(srcDataUrl, geotag, pinDataUrl = null) {
       const W = canvas.width;
       const H = canvas.height;
 
+      // --- Data Parsing ---
       const addr1 = geotag.addr1 || '';
       const addr2 = geotag.addr2 || '';
       const lat   = geotag.lat   || '';
       const lng   = geotag.lng   || '';
       const date  = geotag.date  || '';
-      const time  = geotag.time  || '';
+      
+      let time = '';
+      if (geotag.time) {
+        const [hStr, mStr] = geotag.time.split(':');
+        const h = parseInt(hStr, 10);
+        const m = mStr || '00';
+        const suffix = h >= 12 ? 'PM' : 'AM';
+        const h12 = h % 12 === 0 ? 12 : h % 12;
+        time = `${h12}:${m} ${suffix}`;
+      }
 
       const coordLine = lat || lng ? `Lat ${lat}  Long ${lng}` : '';
       const dateLine  = [date, time].filter(Boolean).join('  ');
-      const lines     = [addr1, addr2, coordLine, dateLine].filter(Boolean);
+      const initialLines = [addr1, addr2, coordLine, dateLine].filter(Boolean);
 
-      if (lines.length === 0) { resolve(canvas.toDataURL('image/jpeg', 0.93)); return; }
+      if (initialLines.length === 0) { 
+        resolve(canvas.toDataURL('image/jpeg', 0.93)); 
+        return; 
+      }
 
+      // --- Sizing & Fixed Height Calculations ---
       const scale     = W / 400;
-      const fontSize  = Math.round(14 * scale);
-      const lineH     = fontSize * 1.5;
-      const padV      = Math.round(10 * scale);
+      const fontSize  = Math.round(12 * scale);
       const padH      = Math.round(12 * scale);
       const iconSize  = Math.round(70 * scale);
-      const smallFont = Math.max(8, Math.round(8 * scale));
+      
+      // FIXED HEIGHT: Set to 110 units relative to a 400px wide scale
+      const stampH    = Math.round(110 * scale); 
+      const boxY      = H - stampH;
 
-      const textX  = padH * 2.5 + iconSize + padH;
-      const stampH = padV * 2 + lines.length * lineH;
-      const boxY   = H - stampH;
+      const textX     = padH * 2.5 + iconSize + padH;
+      const maxW      = W - textX - padH;
+      
+      const font1 = `400 ${fontSize}px Candara, Candara Regular, sans-serif`;
+      const font2 = `${Math.round(fontSize * 0.88)}px Candara, Candara Regular, sans-serif`;
+
+      // --- Text Wrapping Logic ---
+      const wrappedLines = [];
+      initialLines.forEach((line, i) => {
+        const isFirst = (i === 0);
+        ctx.font = isFirst ? font1 : font2; 
+        
+        const words = line.split(' ');
+        let currentLine = words[0] || '';
+
+        for (let j = 1; j < words.length; j++) {
+          const word = words[j];
+          const testLine = currentLine + ' ' + word;
+          if (ctx.measureText(testLine).width <= maxW) {
+            currentLine = testLine;
+          } else {
+            wrappedLines.push({ text: currentLine, isFirst }); 
+            currentLine = word;
+          }
+        }
+        if (currentLine) {
+          wrappedLines.push({ text: currentLine, isFirst });
+        }
+      });
+
+      // --- Line Spacing ---
+      // Use a consistent multiplier for the fixed height layout
+      const lineH = fontSize * 1.30;
 
       const drawStamp = (customPin) => {
-        // Black background
+        // 1. Draw Fixed Black Background
         ctx.globalAlpha = 1;
         ctx.fillStyle   = '#000000';
         ctx.fillRect(0, boxY, W, stampH);
 
-        // White rounded icon box
+        // 2. Draw Icon (Centered vertically within the fixed stampH)
         const iconX = padH;
         const iconY = boxY + (stampH - iconSize) / 2;
         const r     = Math.max(3, Math.round(iconSize * 0.1));
+        
         ctx.fillStyle = '#ffffff';
         ctx.beginPath();
         ctx.roundRect(iconX, iconY, iconSize, iconSize, r);
         ctx.fill();
 
-          if (customPin) {
-            const overflow = iconSize * 0.3;
-            ctx.drawImage(customPin, iconX - overflow / 6, iconY - overflow / 2, iconSize + overflow, iconSize + overflow);
-          } else {
-          // Default red map pin
-          const pinR  = iconSize * 0.67;
+        if (customPin) {
+          const overflow = iconSize * 0.3;
+          ctx.drawImage(customPin, iconX - overflow / 6, iconY - overflow / 2, iconSize + overflow, iconSize + overflow);
+        } else {
+          const pinR  = iconSize * 0.32;
           const pinCX = iconX + iconSize / 2;
-          const pinCY = iconY + iconSize * 0.44;
+          const pinCY = iconY + iconSize * 0.23;
 
           ctx.fillStyle = '#e53935';
           ctx.beginPath();
@@ -231,23 +276,22 @@ async function stampGeotag(srcDataUrl, geotag, pinDataUrl = null) {
           ctx.fill();
         }
 
-        // Text lines
+        // 3. Render Text (Centered vertically as a block within the fixed stampH)
         ctx.textAlign    = 'left';
         ctx.textBaseline = 'alphabetic';
-        lines.forEach((line, i) => {
-          const y = boxY + padV + lineH * i + fontSize;
-          if (i === 0) {
-            ctx.font      = `bold ${fontSize}px Candara, Candara Regular, sans-serif`;
-            ctx.fillStyle = '#ffffff';
-          } else {
-            ctx.font      = `${Math.round(fontSize * 0.88)}px Candara, Candara Regular, sans-serif`;
-            ctx.fillStyle = '#dddddd';
+        
+        const totalTextHeight = wrappedLines.length * lineH;
+        const textStartY = boxY + (stampH - totalTextHeight) / 2 + fontSize;
+
+        wrappedLines.forEach((item, i) => {
+          const y = textStartY + (lineH * i);
+          
+          // Only draw if within the black box bounds
+          if (y < H && y > boxY) {
+            ctx.font      = item.isFirst ? font1 : font2;
+            ctx.fillStyle = item.isFirst ? '#cfcfcf' : '#e3e3e3';
+            ctx.fillText(item.text, textX, y);
           }
-          const maxW = W - textX - padH;
-          let txt = line;
-          while (ctx.measureText(txt).width > maxW && txt.length > 4) txt = txt.slice(0, -1);
-          if (txt !== line) txt += '…';
-          ctx.fillText(txt, textX, y);
         });
 
         resolve(canvas.toDataURL('image/jpeg', 0.93));
@@ -265,108 +309,115 @@ async function stampGeotag(srcDataUrl, geotag, pinDataUrl = null) {
     img.src = srcDataUrl;
   });
 }
-
 // ── Per-image geotag fields — defined OUTSIDE the main component so it never
 //    gets recreated on parent re-renders, which would cause inputs to lose focus ──
-function GeotageFields({ imgKey, geotag, geoAddr1, geoAddr2, geoDate, onUpdate }) {
+function GeotageFields({ imgKey, geotag, onUpdate }) {
   return (
-    <div className="space-y-3">
-      <p className="text-[11px] text-gray-500 uppercase tracking-wider font-semibold mb-1">Per-image fields</p>
-      <div className="grid grid-cols-2 gap-3">
-        <div className="flex flex-col gap-1">
-          <label className="text-[11px] text-gray-400 uppercase tracking-wider">Latitude</label>
-          <input
-            type="text"
-            placeholder="e.g. 11.2276471"
-            value={geotag.lat || ''}
-            onChange={e => onUpdate(imgKey, 'lat', e.target.value)}
-            className="bg-white/5 border border-white/15 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-blue-500/60 placeholder-gray-600"
-          />
-        </div>
-        <div className="flex flex-col gap-1">
-          <label className="text-[11px] text-gray-400 uppercase tracking-wider">Longitude</label>
-          <input
-            type="text"
-            placeholder="e.g. 125.0239258"
-            value={geotag.lng || ''}
-            onChange={e => onUpdate(imgKey, 'lng', e.target.value)}
-            className="bg-white/5 border border-white/15 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-blue-500/60 placeholder-gray-600"
-          />
-        </div>
-      </div>
-      <div className="flex flex-col gap-1">
-        <label className="text-[11px] text-gray-400 uppercase tracking-wider">Time</label>
-        <input
-          type="text"
-          placeholder="e.g. 08:27 AM"
-          value={geotag.time || ''}
-          onChange={e => onUpdate(imgKey, 'time', e.target.value)}
-          className="bg-white/5 border border-white/15 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-blue-500/60 placeholder-gray-600"
-        />
-      </div>
+    <div className="space-y-4 px-1 py-1">
 
-      {/* ── Pin icon upload ── */}
-      <div className="flex flex-col gap-1">
-        <label className="text-[11px] text-gray-400 uppercase tracking-wider">Map Pin Icon</label>
-        <div className="flex items-center gap-3">
-          {/* Preview / placeholder box */}
-          <div className="w-12 h-12 rounded-lg border border-white/15 bg-white/5 flex items-center justify-center overflow-hidden shrink-0">
-          
-            {geotag.pinDataUrl ? 
-            (
-              <img src={geotag.pinDataUrl} alt="Pin" className="w-full h-full object-contain" />
-            ) : (
-              <svg className="w-6 h-6 text-gray-600" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
-              </svg>
-            )}
-          </div>
-          <div className="flex flex-col gap-1.5 flex-1">
-            <label className="cursor-pointer flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 border border-white/15 hover:bg-white/10 hover:border-white/25 transition-all text-xs text-gray-300">
-              <svg className="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-              </svg>
-              {geotag.pinDataUrl ? 'Replace icon' : 'Upload icon'}
-              <input
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={e => {
-                  const file = e.target.files[0];
-                  if (!file) return;
-                  const reader = new FileReader();
-                  reader.onload = (ev) => onUpdate(imgKey, 'pinDataUrl', ev.target.result);
-                  reader.readAsDataURL(file);
-                  e.target.value = '';
-                }}
-              />
-            </label>
-            {geotag.pinDataUrl && (
-              <button
-                type="button"
-                onClick={() => onUpdate(imgKey, 'pinDataUrl', null)}
-                className="px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/20 hover:bg-red-500/20 transition-all text-xs text-red-400 text-left"
-              >
-                Remove — use default pin
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-{/* 
-      <div className="mt-2 rounded-lg bg-white/3 border border-white/8 px-3 py-2">
-        <p className="text-[10px] text-gray-600 uppercase tracking-wider mb-1">Preview stamp text</p>
-        <p className="text-xs text-gray-300 leading-relaxed">
-          {geoAddr1 && <span className="block font-semibold text-white">{geoAddr1}</span>}
-          {geoAddr2 && <span className="block">{geoAddr2}</span>}
-          {(geotag.lat || geotag.lng) && <span className="block">Lat {geotag.lat} Long {geotag.lng}</span>}
-          {(geoDate || geotag.time) && <span className="block">{geoDate}{geotag.time ? ` ${geotag.time}` : ''}</span>}
-          {!geoAddr1 && !geoAddr2 && !geotag.lat && !geotag.lng && !geoDate && !geotag.time &&
-            <span className="text-gray-600 italic">Fill global address fields and per-image coordinates above.</span>
+  {/* Coordinates row */}
+  <div className="grid grid-cols-2 gap-3">
+    <div className="flex flex-col gap-1.5">
+      <label className="text-[10px] text-gray-500 uppercase tracking-wider font-medium">Latitude</label>
+      <input
+        type="text"
+        placeholder="e.g. 11.2276471"
+        value={geotag.lat || ''}
+        onChange={e => {
+          const val = e.target.value;
+          if (val.replace(/[^0-9]/g, '').length <= 10) {
+            onUpdate(imgKey, 'lat', val);
           }
-        </p>
-      </div> */}
+        }}
+        className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-blue-500/50 placeholder-gray-700 transition-all"
+      />
     </div>
+    <div className="flex flex-col gap-1.5">
+      <label className="text-[10px] text-gray-500 uppercase tracking-wider font-medium">Longitude</label>
+      <input
+        type="text"
+        placeholder="e.g. 125.0239258"
+        value={geotag.lng || ''}
+        onChange={e => {
+          const val = e.target.value;
+          if (val.replace(/[^0-9]/g, '').length <= 10) {
+            onUpdate(imgKey, 'lng', val);
+          }
+        }}
+        className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-blue-500/50 placeholder-gray-700 transition-all"
+      />
+    </div>
+  </div>
+
+  {/* Time + Pin Icon on same row */}
+  <div className="grid grid-cols-2 gap-3 items-end">
+
+    {/* Time picker */}
+    <div className="flex flex-col gap-1.5">
+      <label className="text-[10px] text-gray-500 uppercase tracking-wider font-medium">Time</label>
+      <input
+        type="time"
+        value={geotag.time || ''}
+        onChange={e => onUpdate(imgKey, 'time', e.target.value)}
+        className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-blue-500/50 transition-all [color-scheme:dark] uppercase"
+      />
+    </div>
+    {/* Map Pin Icon */}
+    <div className="flex flex-col gap-1.5">
+      <label className="text-[10px] text-gray-500 uppercase tracking-wider font-medium">Map Pin Icon</label>
+      <div className="flex items-center gap-2">
+
+        {/* Preview */}
+        <div className="w-8 h-8 shrink-0 rounded-lg border border-white/10 bg-white/5 flex items-center justify-center overflow-hidden">
+          {geotag.pinDataUrl ? (
+            <img src={geotag.pinDataUrl} alt="Pin" className="w-full h-full object-contain" />
+          ) : (
+            <svg className="w-4 h-4 text-gray-600" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
+            </svg>
+          )}
+        </div>
+
+        {/* Upload / Remove */}
+        <div className="flex gap-1.5 flex-1">
+          <label className="cursor-pointer flex items-center gap-1 px-2 py-2 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 transition-all text-xs text-gray-400 flex-1 justify-center">
+            <svg className="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+            </svg>
+            {geotag.pinDataUrl ? 'Replace' : 'Upload'}
+            <input
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={e => {
+                const file = e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (ev) => onUpdate(imgKey, 'pinDataUrl', ev.target.result);
+                reader.readAsDataURL(file);
+                e.target.value = '';
+              }}
+            />
+          </label>
+          {geotag.pinDataUrl && (
+            <button
+              type="button"
+              onClick={() => onUpdate(imgKey, 'pinDataUrl', null)}
+              className="w-8 h-8 flex items-center justify-center rounded-lg bg-red-500/10 border border-red-500/20 hover:bg-red-500/20 transition-all text-red-400"
+            >
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          )}
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+
+</div>
   );
 }
 
@@ -872,7 +923,7 @@ export default function MonthlyInspectionReport() {
       doc.setFontSize(11);
       doc.setFont('Palatino', 'bold');
       const bwTitleY     = 42;
-      doc.text("ATTACHMENT 2: BANDWIDTH TEST RESULTS", pageWidth / 2, bwTitleY, { align: 'center' });
+      doc.text("ATTACHMENT 2: DOWNLINK AND UPLINK TEST RESULTS", pageWidth / 2, bwTitleY, { align: 'center' });
       const bwGridStartY = bwTitleY + 5;
       const bwGridHeight = pageHeight - bwGridStartY - 65;
       doc.rect(12.7, bwGridStartY, pageWidth - 12.7 * 2, bwGridHeight);
@@ -891,7 +942,7 @@ export default function MonthlyInspectionReport() {
       doc.setFontSize(11);
       doc.setFont('Palatino', 'bold');
       const siteTitleY = 42;
-      doc.text("ATTACHMENT 3: SITE PICTURES", pageWidth / 2, siteTitleY, { align: 'center' });
+      doc.text("ATTACHMENT 3: SITE INSPECTION PICTURES", pageWidth / 2, siteTitleY, { align: 'center' });
       const siteSectionY = siteTitleY + 5;
       doc.rect(15, siteSectionY, pageWidth - 30, sectionHeight);
       if (sInspection) {
@@ -1270,12 +1321,16 @@ export default function MonthlyInspectionReport() {
                                   )}
                                   <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
                                     <button type="button" onClick={() => openLightbox(comboxImage.url, { zone: 'single', key: 'combox' })}
-                                      className="w-8 h-8 bg-white/20 hover:bg-white/40 rounded-full flex items-center justify-center transition-colors">
-                                      <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                        className="w-10 h-10 bg-white/20 hover:bg-white/40 rounded-full flex items-center justify-center transition-colors">
+                                        <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                        </svg>
                                     </button>
                                     <button type="button" onClick={() => setComboxImage(null)}
-                                      className="w-8 h-8 bg-red-500/80 hover:bg-red-500 rounded-full flex items-center justify-center transition-colors">
-                                      <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                      className="w-10 h-10 bg-red-500/80 hover:bg-red-500 rounded-full flex items-center justify-center transition-colors">
+                                      <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                      </svg>
                                     </button>
                                   </div>
                                 </div>
@@ -1307,13 +1362,17 @@ export default function MonthlyInspectionReport() {
                                   )}
                                   <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
                                     <button type="button" onClick={() => openLightbox(siteInspectionImage.url, { zone: 'single', key: 'inspection' })}
-                                      className="w-8 h-8 bg-white/20 hover:bg-white/40 rounded-full flex items-center justify-center transition-colors">
-                                      <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
-                                    </button>
-                                    <button type="button" onClick={() => setSiteInspectionImage(null)}
-                                      className="w-8 h-8 bg-red-500/80 hover:bg-red-500 rounded-full flex items-center justify-center transition-colors">
-                                      <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                                    </button>
+                                    className="w-10 h-10 bg-white/20 hover:bg-white/40 rounded-full flex items-center justify-center transition-colors">
+                                    <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                    </svg>
+                                  </button>
+                                  <button type="button" onClick={() => setSiteInspectionImage(null)}
+                                    className="w-10 h-10 bg-red-500/80 hover:bg-red-500 rounded-full flex items-center justify-center transition-colors">
+                                    <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                  </button>
                                   </div>
                                 </div>
                               ) : (
@@ -1358,12 +1417,16 @@ export default function MonthlyInspectionReport() {
                                       <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
                                         <button type="button"
                                           onClick={() => openLightbox(img.url, { zone: keyPrefix, index: idx, key })}
-                                          className="w-8 h-8 bg-white/20 hover:bg-white/40 backdrop-blur-sm rounded-full flex items-center justify-center transition-all hover:scale-110">
-                                          <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                          className="w-10 h-10 bg-white/20 hover:bg-white/40 backdrop-blur-sm rounded-full flex items-center justify-center transition-all hover:scale-110">
+                                          <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                          </svg>
                                         </button>
                                         <button type="button" onClick={() => removeImage(idx, setter)}
-                                          className="w-8 h-8 bg-red-500/80 hover:bg-red-500 backdrop-blur-sm rounded-full flex items-center justify-center transition-all hover:scale-110">
-                                          <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                          className="w-10 h-10 bg-red-500/80 hover:bg-red-500 backdrop-blur-sm rounded-full flex items-center justify-center transition-all hover:scale-110">
+                                          <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                          </svg>
                                         </button>
                                       </div>
                                       <div className="absolute bottom-1.5 right-1.5 bg-black/50 backdrop-blur-sm text-[9px] text-white/60 px-1.5 py-0.5 rounded-md font-medium">{idx + 1}</div>
@@ -1431,7 +1494,7 @@ export default function MonthlyInspectionReport() {
         </div>
       </div>
 
-      {/* ══ IMAGE EDITOR LIGHTBOX (with Geotag tab) ══ */}
+      {/* ══ IMAGE EDITOR & GEOTAG EDITOR ══ */}
       {lightboxImage && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-gray-950 border border-white/10 rounded-2xl shadow-2xl flex flex-col w-full max-w-3xl overflow-hidden">
