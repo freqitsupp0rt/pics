@@ -53,32 +53,69 @@ const parseSiteInfo = (fullSiteName) => {
   return { siteCode: '', siteName: trimmedName };
 };
 
+// NEW - fixed version
 const expandSiteType = (siteName) => {
   if (!siteName) return siteName;
   siteName = siteName.replace(/_/g, ' ');
+
   const abbreviations = {
-    'ES': 'Elementary School',
-    'NHS': 'National High School',
-    'CC': 'Covered Court',
-    'MP': 'Municipal Plaza',
-    'MH': 'Municipal Hall',
-    'IS': 'Integrated School',
-    'CS': 'Central School',
+    // Site-specific (longest first)
+    'RNHS':     'Remandaban National High School',
+    'RSHS':     'Remandaban National High School - Senior High School',
+
+    // Compound types (longest first to avoid partial matches)
+    'CNHS_SHS': 'Comprehensive National High School - Senior High School', // 
+    'NHS-SHS':  'National High School - Senior High School',
+    'NHS-SH':   'National High School - Senior High',
+    'SASHS':    'Stand-Alone Senior High School',
+    'CNHS':     'Comprehensive National High School',
+    'NCHS':     'National Comprehensive High School',
+    'NNHS':     'National Night High School',
+    'EVSU':     'Eastern Visayas State University',
+    'VSUH':     'Visayas State University Hospital',
+    'VSU':      'Visayas State University',
+    'NVS':      'National Vocational School',
+    'MPS':      'Municipal Police Station',
+    'RHU':      'Rural Health Unit',
+    'BHS':      'Barangay Health Station',
+    'NHS':      'National High School',
+    'SHS':      'Senior High School',
+    'VHS':      'Vocational High School',
+    'SOF':      'School Of Fisheries',
+    'MHS':      'Memorial High School',
+    'CC':       'Community College',
+    'CH':       'Community Hospital',
+    'DH':       'District Hospital',
+    'MI':       'Municipal Infirmary',
+    'CS':       'Central School',
+    'ES':       'Elementary School',
+    'IS':       'Integrated School',
+    'MS':       'Memorial School',
+    'MH':       'Municipal Hall',
+    'BH':       'Barangay Hall',
+    'PM':       'Public Market',
+    'MP':       'Municipal Plaza',
+    'SP':       'Seaport',
+    'OC':       'Ormoc Campus',
+    'VSU-HSP': 'Visayas State University Hospital',
+    'Com H' : 'Community Hospital',
+    'MHO': 'Municipal Health Office',
+    'NSAT' : 'National School of Arts and Trade',
+    'CNNHS' : 'City National Night High School',
+    'SES' :'South Elementary School',
+    'NES' :'North Elementary School',
   };
-  const separators = ['', '-', ' ', '.'];
-  let expandedName = siteName;
+
   for (const [abbr, fullName] of Object.entries(abbreviations)) {
-    const index = siteName.toLowerCase().indexOf(abbr.toLowerCase());
-    if (index !== -1) {
-      const afterAbbr = siteName.slice(index + abbr.length);
-      const isAtEnd = afterAbbr === '' || separators.some(sep => afterAbbr.startsWith(sep));
-      if (isAtEnd) {
-        expandedName = siteName.slice(0, index) + fullName + siteName.slice(index + abbr.length);
-        break;
-      }
+    // Escape BOTH hyphens and dots in the abbreviation for regex safety
+    const escapedAbbr = abbr.replace(/[-\.]/g, '\\$&');
+    const regex = new RegExp(`(^|\\s)${escapedAbbr}$`);
+    if (regex.test(siteName)) {
+      return siteName.replace(regex, (match, prefix) => prefix + fullName);
     }
   }
-  return expandedName;
+
+  return siteName;
 };
 
 const PREPARED_BY_OPTIONS = [
@@ -111,42 +148,44 @@ function CustomSelect({ label, value, onChange, options }) {
 
   const selected = options.find((o) => o.name === value);
 
-  return (
-    <div className="flex flex-col gap-1" ref={ref}>
-      <label className="text-sm text-gray-300">{label}</label>
-      <div className="relative">
-        <button
-          type="button"
-          onClick={() => setOpen((p) => !p)}
-          className="w-full flex items-center justify-between bg-white/5 border border-white/20 p-3 rounded-xl text-white text-left transition-colors hover:bg-white/10 focus:outline-none focus:border-white/40"
+ return (
+  <div className="flex flex-col gap-1" ref={ref}>
+    <label className="text-sm text-gray-300">{label}</label>
+    <div className="relative">
+      <button 
+        type="button"
+        onClick={() => setOpen((p) => !p)}
+        className="w-full flex items-center justify-between bg-white/5 border border-white/20 p-3 rounded-xl text-white text-left transition-colors hover:bg-white/10 focus:outline-none focus:border-white/40"
+        style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}
+      >
+        <span className="truncate text-base font-normal">{selected?.name}</span>
+        <svg
+          className={`w-4 h-4 text-gray-400 transition-transform duration-200 shrink-0 ml-2 ${open ? 'rotate-180' : ''}`}
+          fill="none" stroke="currentColor" viewBox="0 0 24 24"
         >
-          <span className="truncate text-sm">{selected?.name}</span>
-          <svg
-            className={`w-4 h-4 text-gray-400 transition-transform duration-200 shrink-0 ml-2 ${open ? 'rotate-180' : ''}`}
-            fill="none" stroke="currentColor" viewBox="0 0 24 24"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-          </svg>
-        </button>
-        {open && (
-          <ul className="absolute z-50 mt-2 w-full bg-gray-900 border border-white/20 rounded-xl overflow-hidden shadow-2xl shadow-black/50">
-            {options.map((o) => (
-              <li key={o.name}>
-                <button
-                  type="button"
-                  onClick={() => { onChange(o); setOpen(false); }}
-                  className={`w-full text-left px-4 py-2.5 text-sm transition-colors hover:bg-white/10
-                    ${o.name === value ? 'text-white bg-white/5 font-semibold' : 'text-gray-300 font-normal'}`}
-                >
-                  {o.name}
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+      {open && (
+        <ul className="absolute z-50 mt-2 w-full bg-gray-900 border border-white/20 rounded-xl overflow-hidden shadow-2xl shadow-black/50">
+          {options.map((o) => (
+            <li key={o.name}>
+              <button
+                type="button"
+                onClick={() => { onChange(o); setOpen(false); }}
+                style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}
+                className={`w-full text-left px-4 py-2.5 text-base transition-colors hover:bg-white/10
+                  ${o.name === value ? 'text-white bg-white/5 font-bold' : 'text-gray-300 font-normal'}`}
+              >
+                {o.name}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
-  );
+  </div>
+);
 }
 
 // ── Geotag stamp renderer  ──
@@ -1136,10 +1175,10 @@ export default function MonthlyInspectionReport() {
                       <label className="text-sm text-gray-300">Report Title</label>
                       <input type="text" value={reportTitle} onChange={(e) => setReportTitle(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()} className="bg-white/5 border border-white/20 p-3 rounded-xl outline-none" />
                     </div>
-                    <div className="flex flex-col gap-1">
-                      <label className="text-sm text-gray-300">Report Date</label>
-                      <input type="date" value={reportDate} onChange={(e) => setReportDate(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()} className="bg-white/5 border border-white/20 p-3 rounded-xl outline-none" />
-                    </div>
+                   <div className="flex flex-col gap-1">
+  <label className="text-sm text-gray-300">Report Date</label>
+  <input type="date" value={reportDate} onChange={(e) => setReportDate(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()} style={{ colorScheme: 'dark' }} className="bg-white/5 border border-white/20 p-3 rounded-xl outline-none" />
+</div>
                     <div className="flex flex-col gap-1">
                       <label className="text-sm text-gray-300">Contracted Bandwidth (Mbps)</label>
                       <input type="text" value={contractedBandwidth} onChange={(e) => setContractedBandwidth(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()} className="bg-white/5 border border-white/20 p-3 rounded-xl outline-none" />
