@@ -184,7 +184,7 @@ async function stampGeotag(srcDataUrl, geotag, pinDataUrl = null) {
       const iconSize  = Math.round(70 * scale);
       const smallFont = Math.max(8, Math.round(8 * scale));
 
-      const textX  = padH * 2 + iconSize + padH;
+      const textX  = padH * 2.5 + iconSize + padH;
       const stampH = padV * 2 + lines.length * lineH;
       const boxY   = H - stampH;
 
@@ -204,8 +204,8 @@ async function stampGeotag(srcDataUrl, geotag, pinDataUrl = null) {
         ctx.fill();
 
           if (customPin) {
-            const overflow = iconSize * 0.4;
-            ctx.drawImage(customPin, iconX - overflow / 2, iconY - overflow / 2, iconSize + overflow, iconSize + overflow);
+            const overflow = iconSize * 0.3;
+            ctx.drawImage(customPin, iconX - overflow / 6, iconY - overflow / 2, iconSize + overflow, iconSize + overflow);
           } else {
           // Default red map pin
           const pinR  = iconSize * 0.67;
@@ -311,7 +311,9 @@ function GeotageFields({ imgKey, geotag, geoAddr1, geoAddr2, geoDate, onUpdate }
         <div className="flex items-center gap-3">
           {/* Preview / placeholder box */}
           <div className="w-12 h-12 rounded-lg border border-white/15 bg-white/5 flex items-center justify-center overflow-hidden shrink-0">
-            {geotag.pinDataUrl ? (
+          
+            {geotag.pinDataUrl ? 
+            (
               <img src={geotag.pinDataUrl} alt="Pin" className="w-full h-full object-contain" />
             ) : (
               <svg className="w-6 h-6 text-gray-600" fill="currentColor" viewBox="0 0 20 20">
