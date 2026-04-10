@@ -93,15 +93,16 @@ export default function SiteList({
       accessorKey: "displayName", 
       header: "Site Name",
       cell: ({ row }) => (
-        <div className="flex flex-col">
-          <span className="font-medium">{row.original.displayName}</span>
-          {row.original.siteCode && (
-            <span className="text-xs text-gray-300 mt-1">Code: {row.original.siteCode}</span>
-          )}
-          {row.original.originalName !== row.original.displayName && (
-            <span className="text-xs text-gray-400 mt-0.5">Original: {row.original.originalName}</span>
-          )}
-        </div>
+       <div className="flex flex-col">
+  <span className={isSelected ? "drop-shadow-[0_1px_1px_rgba(0,0,0,1)]" : ""}>
+    {row.original.displayName}
+  </span>
+  {row.original.siteCode && (
+    <span className={`text-xs mt-1 ${isSelected ? "text-white drop-shadow-[0_3px_3px_rgba(0,0,0,1)]" : "text-gray-300"}`}>
+      {row.original.siteCode}
+    </span>
+  )}
+</div>
       )
     }
   ], []);
@@ -236,7 +237,7 @@ export default function SiteList({
               {table.getHeaderGroups().map(headerGroup => (
                 <tr key={headerGroup.id} className="bg-white/20">
                   {headerGroup.headers.map(header => (
-                    <th key={header.id} className="px-3 py-2 text-left text-gray-200 sticky top-0 bg-white/20 z-10">
+                    <th key={header.id} className="px-3 py-2 text-left text-gray-200 sticky top-0 bg-gray-800 z-10 text-base">
                       {flexRender(header.column.columnDef.header, header.getContext())}
                     </th>
                   ))}
@@ -250,10 +251,16 @@ export default function SiteList({
                 
                 return (
                   <tr
-                    key={row.original.siteId}
-                    onClick={() => handleRowClick(row.original.siteId)}
-                    className={`cursor-pointer transition ${rowBg} ${isSelected ? "bg-green-500 text-black font-semibold" : ""} hover:bg-white/20`}
-                  >
+               key={row.original.siteId}
+                onClick={() => handleRowClick(row.original.siteId)}
+                className={`cursor-pointer transition-all duration-300 border-l-4 ${
+                 isSelected ? "border-white" : "border-transparent"
+                } ${rowBg} ${
+                 isSelected 
+                ? "bg-green-500 text-white font-semibold scale-[1.04] ring-1 ring-gray-300/50 shadow-lg" 
+                : "text-white"
+                } hover:bg-white/20`}
+                  > 
                     <td className="px-3 py-2">
                       <div className="flex justify-between items-center">
                         <div className="flex flex-col">
