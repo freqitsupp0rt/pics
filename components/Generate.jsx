@@ -170,70 +170,68 @@ const extractRuijieAccountNumber = (vendorString) => {
   return match ? parseInt(match[0]) : 1;
 };
 
-// Function to expand the abbreviation in site name
-// const expandSiteType = (siteName) => {
-//   if (!siteName) return siteName;
+const expandSiteType = (siteName) => {
+  if (!siteName) return siteName;
 
-//   const abbreviations = {
-//     // Multi-word / compound types (check LONGEST first to avoid partial matches)
-//     'NHS-SHS': 'National High School - Senior High School',
-//     'NHS-SH': 'National High School - Senior High',
-//     'CNHS_SHS': 'Comprehensive National High School - Senior High School',
-//     'SASHS': 'Stand-Alone Senior High School',
-//     'CNHS': 'Comprehensive National High School',
-//     'NCHS': 'National Comprehensive High School',
-//     'NNHS': 'National Night High School',
-//     'EVSU': 'Eastern Visayas State University',
-//     'VSUH': 'Visayas State University Hospital',
-//     'VSU': 'Visayas State University',
-//     'NVS': 'National Vocational School',
-//     'MPS': 'Municipal Police Station',
-//     'RHU': 'Rural Health Unit',
-//     'BHS': 'Barangay Health Station',
-//     'NHS': 'National High School',
-//     'SHS': 'Senior High School',
-//     'VHS': 'Vocational High School',
-//     'SOF': 'School Of Fisheries',
-//     'MHS': 'Memorial High School',
-//     'CC': 'Community College',
-//     'CH': 'Community Hospital',
-//     'DH': 'District Hospital',
-//     'MI': 'Municipal Infirmary',
-//     'CS': 'Central School',
-//     'ES': 'Elementary School',
-//     'IS': 'Integrated School',
-//     'MS': 'Memorial School',
-//     'MH': 'Municipal Hall',
-//     'BH': 'Barangay Hall',
-//     'PM': 'Public Market',
-//     'MP': 'Municipal Plaza',
-//     'SP': 'Seaport',
-//     'RNHS':     'Remandaban National High School',
-//     'RSHS': 'Remandaban National High School - Senior High School',
-//     'OC':       'Ormoc Campus',
-//     'VSU-HSP': 'Visayas State University Hospital',
-//     'Com H' : 'Community Hospital',
-//     'MHO': 'Municipal Health Office',
-//     'NSAT' : 'National School of Arts and Trade',
-//     'CNNHS' : 'City National Night High School',
-//     'SES' :'South Elementary School',
-//     'NES' :'North Elementary School',
-//   };
+  const abbreviations = {
+    'NHS-SHS': 'National High School - Senior High School',
+    'NHS-SH': 'National High School - Senior High',
+    'CNHS_SHS': 'Comprehensive National High School - Senior High School',
+    'SASHS': 'Stand-Alone Senior High School',
+    'CNHS': 'Comprehensive National High School',
+    'NCHS': 'National Comprehensive High School',
+    'NNHS': 'National Night High School',
+    'EVSU': 'Eastern Visayas State University',
+    'VSUH': 'Visayas State University Hospital',
+    'VSU': 'Visayas State University',
+    'NVS': 'National Vocational School',
+    'MPS': 'Municipal Police Station',
+    'RHU': 'Rural Health Unit',
+    'BHS': 'Barangay Health Station',
+    'NHS': 'National High School',
+    'SHS': 'Senior High School',
+    'VHS': 'Vocational High School',
+    'SOF': 'School Of Fisheries',
+    'MHS': 'Memorial High School',
+    'CC': 'Community College',
+    'CH': 'Community Hospital',
+    'DH': 'District Hospital',
+    'MI': 'Municipal Infirmary',
+    'CS': 'Central School',
+    'ES': 'Elementary School',
+    'IS': 'Integrated School',
+    'MS': 'Memorial School',
+    'MH': 'Municipal Hall',
+    'BH': 'Barangay Hall',
+    'PM': 'Public Market',
+    'MP': 'Municipal Plaza',
+    'SP': 'Seaport',
+    'RNHS':     'Remandaban National High School',
+    'RSHS': 'Remandaban National High School - Senior High School',
+    'OC':       'Ormoc Campus',
+    'VSU-HSP': 'Visayas State University Hospital',
+    'Com H' : 'Community Hospital',
+    'MHO': 'Municipal Health Office',
+    'NSAT' : 'National School of Arts and Trade',
+    'CNNHS' : 'City National Night High School',
+    'SES' :'South Elementary School',
+    'NES' :'North Elementary School',
+  };
 
-//   // Match only at the END of the string, as a whole word (after a space or hyphen)
-//   for (const [abbr, fullName] of Object.entries(abbreviations)) {
-//     // Escape special regex characters in the abbreviation
-//     const escapedAbbr = abbr.replace(/[-]/g, '\\$&');
-//     // Only match if the abbreviation is at the END of the string,
-//     // preceded by a space or start of string
-//     const regex = new RegExp(`(^|\\s)${escapedAbbr}$`);
-//     if (regex.test(siteName)) {
-//       return siteName.replace(regex, (match, prefix) => prefix + fullName);
-//     }
-//   }
+  // Match only at the END of the string, as a whole word (after a space or hyphen)
+  for (const [abbr, fullName] of Object.entries(abbreviations)) {
+    // Escape special regex characters in the abbreviation
+    const escapedAbbr = abbr.replace(/[-]/g, '\\$&');
+    // Only match if the abbreviation is at the END of the string,
+    // preceded by a space or start of string
+    const regex = new RegExp(`(^|\\s)${escapedAbbr}$`);
+    if (regex.test(siteName)) {
+      return siteName.replace(regex, (match, prefix) => prefix + fullName);
+    }
+  }
 
-//   return siteName;
-// };
+  return siteName;
+};
 
 const dragDataPlugin = {
   id: 'dragData',
